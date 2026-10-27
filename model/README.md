@@ -110,6 +110,11 @@ only (evaluation always sees raw crops): `--flip` mirrors half the samples
 `--photometric-jitter` adds +/- 20% brightness/contrast. All three are recorded
 in checkpoints.
 
+After training, the test set is scored twice: raw, and with a per-user
+ridge-regression correction that `train.py` fits itself on each test
+subject's nine extreme screen positions (corners, edge midpoints and center 
+of a 3x3 lattice. Both scores are logged
+
 If you are using the `wandb` logger, then you need to login first:
 
 ```bash

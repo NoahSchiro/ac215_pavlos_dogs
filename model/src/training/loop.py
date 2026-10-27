@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from src.data.utils import prepare_images
 from src.training.augment import augment_batch
+from src.training.calibration import RidgeFit, apply_user_calibration
 from src.training.logging import RunLogger
 from src.training.metrics import (
     ErrorStats,
@@ -144,12 +145,17 @@ def evaluate(
     loader: DataLoader[Any],
     device: torch.device,
     criterion: nn.Module | None = None,
+    calibration: dict[str, RidgeFit] | None = None,
 ) -> tuple[ErrorStats, float]:
     """Error over the whole loader, broken down per participant.
 
     Returns (stats, mean loss per batch). The loss is the same quantity
     train_one_epoch reports, so the two are directly comparable: validation
     loss rising while training loss falls is the overfitting signal.
+
+    `calibration` optionally maps subject ids to fitted affine corrections. 
+    Predictions from those subjects are corrected before the loss and errors
+    are computed.
     """
     model.eval()
     criterion = criterion if criterion is not None else build_criterion(model)
@@ -158,16 +164,62 @@ def evaluate(
     total = 0.0
     for batch in tqdm(loader, desc="eval", leave=False):
         prediction, target = forward_batch(model, batch, device)
+        batch_subjects = [sample_id.split("/")[1] for sample_id in batch["sample_id"]]
+        if calibration is not None:
+            prediction = torch.as_tensor(
+                apply_user_calibration(
+                    prediction.cpu().numpy(), batch_subjects, calibration
+                ),
+                dtype=prediction.dtype,
+                device=device,
+            )
         total += float(compute_loss(model, criterion, prediction, target).item())
         if model.output_mode == "gaze_direction":
             errors.append(angular_error_deg(prediction, target).cpu())
         else:
             errors.append(screen_fraction_error(prediction, target).cpu())
         # sample_id looks like "<dataset>/<subject>/..."
-        subjects.extend(sample_id.split("/")[1] for sample_id in batch["sample_id"])
+        subjects.extend(batch_subjects)
     if not errors:
         raise ValueError("evaluation loader produced no batches")
     return summarize(torch.cat(errors), subjects), total / len(loader)
+
+
+@torch.no_grad()
+def collect_predictions(
+    model: GazeNet,
+    loader: DataLoader[Any],
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[str]]:
+    """Run the model over the loader and gather what calibration fitting needs.
+
+    Returns (predictions, targets, screen labels, subject ids). The screen
+    labels are the batch's "label" when it carries one and the targets
+    otherwise, so gaze-direction models can still locate extreme screen
+    positions.
+    """
+    model.eval()
+    prediction_chunks: list[torch.Tensor] = []
+    target_chunks: list[torch.Tensor] = []
+    label_chunks: list[torch.Tensor] = []
+    subjects: list[str] = []
+    
+    for batch in tqdm(loader, desc="collect", leave=False):
+        prediction, target = forward_batch(model, batch, device)
+        prediction_chunks.append(prediction.cpu())
+        target_chunks.append(target.cpu())
+        label_chunks.append(batch["label"].cpu() if "label" in batch else target.cpu())
+        subjects.extend(sample_id.split("/")[1] for sample_id in batch["sample_id"])
+    
+    if not prediction_chunks:
+        raise ValueError("evaluation loader produced no batches")
+
+    return (
+        torch.cat(prediction_chunks),
+        torch.cat(target_chunks),
+        torch.cat(label_chunks),
+        subjects,
+    )
 
 
 def save_checkpoint(

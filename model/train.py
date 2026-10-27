@@ -19,8 +19,15 @@ from torch.utils.data import DataLoader
 
 from src.data.gazecapture import GazeCapture
 from src.data.mpiifacegaze import MPII
+from src.training.calibration import fit_user_calibration
 from src.training.logging import ConsoleLogger, WandbLogger, resolve_run_dir
-from src.training.loop import TrainConfig, evaluate, fit, load_checkpoint
+from src.training.loop import (
+    TrainConfig,
+    collect_predictions,
+    evaluate,
+    fit,
+    load_checkpoint,
+)
 from src.training.model import GazeNet
 
 NUM_PARTICIPANTS = 15
@@ -101,6 +108,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="stop after this many epochs with no improvement",
+    )
+
+    calibration = parser.add_argument_group("calibration")
+    calibration.add_argument(
+        "--ridge-lambda",
+        type=float,
+        default=0.1,
+        help="ridge penalty for the per-user calibration."
     )
 
     run = parser.add_argument_group("run")
@@ -229,11 +244,35 @@ def main() -> None:
     if worst is not None:
         print(f"worst participant: {worst[0]} at {worst[1].mean:.5f}")
 
-    # Recover the best model before running test
+    # Recover the best model before running test. The test set is scored
+    # twice: raw, and with a per-user ridge correction that main fits here on
+    # each test subject's extreme samples before handing it to evaluate.
     load_checkpoint(run_dir / "best.pt", model)
-    stats, test_loss = evaluate(model, loader("test", shuffle=False), device)
+    test_loader = loader("test", shuffle=False)
+    raw_stats, test_loss = evaluate(model, test_loader, device)
     print(
-        f"test mean {stats.mean:.5f} (loss {test_loss:.5f}) over {stats.count} samples"
+        f"test mean {raw_stats.mean:.5f} (loss {test_loss:.5f}) over {raw_stats.count} samples"
+    )
+
+    predictions, targets, screen_labels, subjects = collect_predictions(
+        model, test_loader, device
+    )
+    fits = fit_user_calibration(
+        predictions.numpy(),
+        targets.numpy(),
+        subjects,
+        selection_labels=screen_labels.numpy(),
+        lamb=args.ridge_lambda,
+    )
+    calibrated_stats, _ = evaluate(model, test_loader, device, calibration=fits)
+    improvement = (
+        f" ({100 * (1 - calibrated_stats.mean / raw_stats.mean):+.1f}%)"
+        if raw_stats.mean > 0
+        else ""
+    )
+    print(
+        f"test mean with per-user ridge calibration:"
+        f" {calibrated_stats.mean:.5f}{improvement}"
     )
 
     logger.summarize({
@@ -247,11 +286,14 @@ def main() -> None:
             if worst is not None
             else {}
         ),
-        "test_mean": stats.mean,
-        "test_median": stats.median,
-        "test_p95": stats.p95,
+        "test_mean": raw_stats.mean,
+        "test_median": raw_stats.median,
+        "test_p95": raw_stats.p95,
         "test_loss": test_loss,
-        "test_count": stats.count,
+        "test_count": raw_stats.count,
+        "test_mean_calibrated": calibrated_stats.mean,
+        "test_median_calibrated": calibrated_stats.median,
+        "test_p95_calibrated": calibrated_stats.p95,
     })
     logger.finish()
 
