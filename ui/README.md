@@ -59,12 +59,39 @@ src/
     Calibration.tsx   the calibration screen
     fullscreen.ts     best-effort enter/exit full screen
     Crosshair.tsx     target marker
+  vision/             the model's image preprocessing, ported to the browser
+    cv.ts             thin wrappers over @techstark/opencv-js (see below)
+    utils.ts          port of model/src/data/utils.py, steps 2-5 + tensors
+    index.ts          public surface
+    utils.test.ts     line-for-line port of model/tests/test_utils.py
+    parity.test.ts    parity against recorded native cv2 outputs
+    fixtures/         face.jpg + reference outputs generated in model/
   test-setup.ts       jest-dom matchers + Testing Library cleanup
 ```
 
-Each screen lives in its own folder so work on different screens does not
-conflict. `App.tsx` only switches views and holds the last
-`CalibrationResult`.
+## Vision preprocessing
+
+`src/vision/` is the browser counterpart of the model's image preprocessing,
+so the ONNX export of GazeNet can run on artifacts identical to the ones
+training used. The cv2 geometry is `@techstark/opencv-js` (pinned to the exact
+version `opencv-python-headless` uses in `model/`) behind thin wrappers in
+`cv.ts`. It takes an RGB uint8 image plus camera intrinsics and produces:
+
+- the 224x224 normalized face crop,
+- the 36x60 left/right eye crops (anatomical left/right),
+- the virtual-camera rotation `R_norm`,
+- `prepareImages` tensors: uint8 crops -> float32 (B, 3, H, W) with the
+  ImageNet statistics the pretrained face tower expects.
+
+`preprocess` runs the whole chain on one frame and quality-gates it, returning
+the artifacts or a drop reason. The geometry is asynchronous because the
+OpenCV WASM runtime loads once per page; opencv.js memory is not garbage
+collected, so the wrappers delete every Mat on all exit paths.
+
+The FaceLandmarker is `@mediapipe/tasks-vision` with the same options as
+`get_landmarker` in `model/src/data/utils.py`. It fetches `landmarker.task`
+from the same URL the Python side does, and its wasm runtime from the
+jsdelivr CDN pinned to the installed package version.
 
 ## Calibration
 
@@ -94,8 +121,21 @@ Full screen is best effort: if the browser refuses, calibration runs windowed.
 
 ## Testing
 
-Component tests use `@testing-library/react` on jsdom. jsdom has no camera,
-canvas, or full-screen API, so tests mock `navigator.mediaDevices`,
-`HTMLCanvasElement.prototype.toBlob`, and `document.requestFullscreen`.
-Testing Library's automatic cleanup is registered in `src/test-setup.ts`
-because Vitest runs without globals.
+`npm run test` runs two Vitest projects:
+
+- **app** — component tests with `@testing-library/react` on jsdom. jsdom
+  has no camera, canvas, or full-screen API, so tests mock
+  `navigator.mediaDevices`, `HTMLCanvasElement.prototype.toBlob`, and
+  `document.requestFullscreen`. Testing Library's automatic cleanup is
+  registered in `src/test-setup.ts` because Vitest runs without globals.
+- **vision** — the preprocessing tests in `src/vision/`, run in a real
+  browser through Vitest's `preview` provider, because MediaPipe's
+  FaceLandmarker uploads frames through WebGL, which jsdom cannot provide.
+  The provider opens your **system default browser** as a regular tab.
+  Point it at a specific browser with the `BROWSER` env var (e.g.
+  `BROWSER=firefox npm test`), and pass browser flags via `BROWSER_ARGS`.
+  If no browser can be opened (e.g. a bare CI container), the vision tests
+  error out.
+
+The vision tests download the face landmarker model (~3.6 MB) on first use,
+like the Python tests do. The browser tab stays open after the run.
