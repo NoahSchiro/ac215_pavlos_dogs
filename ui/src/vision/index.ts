@@ -41,3 +41,9 @@ export {
   GENERIC_FACE_MODEL,
   MODEL_LANDMARK_IDS,
 } from './utils'
+export type { ScreenFraction, GazeModel } from './model'
+export {
+  loadGazeModel,
+  predictScreenFraction,
+  predictGaze,
+} from './model'

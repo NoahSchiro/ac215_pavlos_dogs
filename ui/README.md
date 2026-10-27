@@ -62,9 +62,11 @@ src/
   vision/             the model's image preprocessing, ported to the browser
     cv.ts             thin wrappers over @techstark/opencv-js (see below)
     utils.ts          port of model/src/data/utils.py, steps 2-5 + tensors
+    model.ts          GazeNet inference via onnxruntime-web (see below)
     index.ts          public surface
     utils.test.ts     line-for-line port of model/tests/test_utils.py
     parity.test.ts    parity against recorded native cv2 outputs
+    model.test.ts     inference parity against Python onnxruntime
     fixtures/         face.jpg + reference outputs generated in model/
   test-setup.ts       jest-dom matchers + Testing Library cleanup
 ```
@@ -92,6 +94,32 @@ The FaceLandmarker is `@mediapipe/tasks-vision` with the same options as
 `get_landmarker` in `model/src/data/utils.py`. It fetches `landmarker.task`
 from the same URL the Python side does, and its wasm runtime from the
 jsdelivr CDN pinned to the installed package version.
+
+## Gaze inference
+
+`src/vision/model.ts` runs the trained GazeNet in the browser with
+`onnxruntime-web`. The model file is `public/models/gazenet.onnx`, exported
+by the training pipeline's own `export_onnx` (`model/src/training/export.py`)
+from the best checkpoint's `best.pt`; copy it here after training:
+
+```bash
+cp model/checkpoints/<run>/best.onnx ui/public/models/gazenet.onnx
+```
+
+The public API mirrors the preprocessing pipeline:
+
+- `loadGazeModel()` creates the inference session on the wasm CPU backend
+  (once per page; the wasm runtime is fetched from the CDN pinned to the
+  installed `onnxruntime-web` version, like the other runtimes above).
+- `predictScreenFraction(model, frame)` feeds one `PreprocessedFrame`'s
+  `prepareImages` tensors through the network.
+- `predictGaze(landmarker, model, image, intrinsics)` is the end-to-end
+  entry point for webcam frames: preprocess (landmarks, head pose, quality
+  gates, normalization) then inference, returning the gaze screen fraction
+  `{x, y}` or a `DropReason` for frames that fail a quality check.
+
+Predictions are sigmoid-activated fractions of the screen — the same label
+space `transformLabel` records calibration targets in.
 
 ## Calibration
 
