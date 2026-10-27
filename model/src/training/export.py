@@ -8,8 +8,8 @@ from pathlib import Path
 
 import torch
 
+from src.training.config import TrainConfig
 from src.training.model import GazeNet
-from src.training.loop import TrainConfig
 
 
 def save_checkpoint(
@@ -77,7 +77,7 @@ def export_onnx(path: Path, model: GazeNet) -> Path:
     """Write `model` as a self-contained ONNX file at `path` and return the path."""
     path.parent.mkdir(parents=True, exist_ok=True)
     exported = copy.deepcopy(model).cpu().eval()
-    face_size = 244
+    face_size = 224
     face = torch.zeros(1, 3, face_size, face_size)
     sample: tuple[torch.Tensor, ...]
     dynamic_shapes: tuple[dict[int, str], ...]

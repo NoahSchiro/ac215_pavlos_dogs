@@ -16,10 +16,10 @@ import wandb
 from torch.utils.data import DataLoader, Dataset
 
 from src.data.utils import prepare_images
+from src.training.config import TrainConfig
 from src.training.export import export_onnx, load_checkpoint, save_checkpoint
 from src.training.logging import ConsoleLogger, WandbLogger
 from src.training.loop import (
-    TrainConfig,
     evaluate,
     fit,
 )
