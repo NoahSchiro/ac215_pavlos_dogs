@@ -4,7 +4,6 @@ data/GazeCapture.tar
 
 # Model weights
 model/models/
-ui/public/models/
 
 __pycache__/
 *.pyc
