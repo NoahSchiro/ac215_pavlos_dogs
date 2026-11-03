@@ -1,9 +1,9 @@
-"""Train and evaluate loops, with checkpointing and resume."""
+"""Train and evaluate loops."""
 
 import json
 import math
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,8 @@ from tqdm import tqdm
 
 from src.data.utils import prepare_images
 from src.training.augment import augment_batch
+from src.training.config import TrainConfig
+from src.training.export import export_onnx, load_checkpoint, save_checkpoint
 from src.training.logging import RunLogger
 from src.training.metrics import (
     ErrorStats,
@@ -23,37 +25,6 @@ from src.training.metrics import (
     summarize,
 )
 from src.training.model import GazeNet
-
-
-@dataclass
-class TrainConfig:
-    """Hyperparameters for one run, separate from how the run was invoked.
-
-    This is what `save_checkpoint` records, so it holds the things that
-    determine the resulting weights and none of the things that do not
-    (device, paths, --resume). It also lets `fit` be called without
-    argparse, which the tests rely on.
-
-    `batch_size` and `num_workers` are not read by `fit` -- the loaders are
-    built by the caller -- but are recorded so a checkpoint says what
-    produced it.
-    """
-
-    epochs: int = 30
-    learning_rate: float = 1e-4
-    lr_schedule: str = "none"
-    weight_decay: float = 1e-4
-    batch_size: int = 256
-    num_workers: int = 8
-    seed: int = 0
-    grad_clip: float | None = 1.0
-    patience: int | None = None
-    """Stop after this many epochs with no improvement. None disables it."""
-    augment_flip: bool = False
-    augment_crop_jitter: bool = False
-    augment_photometric: bool = False
-    # Per-batch augmentation switches, applied on device during training
-    # only (see src/training/augment.py); recorded with the checkpoint.
 
 
 def forward_batch(
@@ -170,69 +141,6 @@ def evaluate(
     return summarize(torch.cat(errors), subjects), total / len(loader)
 
 
-def save_checkpoint(
-    path: Path,
-    model: GazeNet,
-    optimizer: torch.optim.Optimizer,
-    epoch: int,
-    best_error: float,
-    config: TrainConfig,
-) -> None:
-    """Everything needed to resume, including on another machine."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "epoch": epoch,
-            "best_error": best_error,
-            "model_state": model.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
-            "output_mode": model.output_mode,
-            "use_eyes": model.use_eyes,
-            "dropout": model.dropout,
-            # Recorded because it also selects the input normalization, so a
-            # mismatch at load time silently degrades predictions.
-            "pretrained": model.pretrained,
-            "config": asdict(config),
-        },
-        path,
-    )
-
-
-def load_checkpoint(
-    path: Path, model: GazeNet, optimizer: torch.optim.Optimizer | None = None
-) -> tuple[int, float]:
-    """Restore weights (and optimizer, if given). Returns (last_epoch, best)."""
-    state = torch.load(path, map_location="cpu", weights_only=False)
-    if state["output_mode"] != model.output_mode:
-        raise ValueError(
-            f"checkpoint is {state['output_mode']}, model is {model.output_mode}"
-        )
-    # `pretrained` selects whether inputs get ImageNet normalization, so
-    # loading weights into a model configured the other way produces much
-    # worse predictions and no error. Fail loudly instead.
-    if "pretrained" in state and state["pretrained"] != model.pretrained:
-        raise ValueError(
-            f"checkpoint was trained with pretrained={state['pretrained']},"
-            f" model has pretrained={model.pretrained};"
-            " the input normalization would not match"
-        )
-    if state.get("use_eyes") is not None and state["use_eyes"] != model.use_eyes:
-        raise ValueError(
-            f"checkpoint has use_eyes={state['use_eyes']},"
-            f" model has use_eyes={model.use_eyes}"
-        )
-    if "dropout" in state and float(state["dropout"]) != model.dropout:
-        raise ValueError(
-            f"checkpoint was trained with dropout={state['dropout']},"
-            f" model has dropout={model.dropout};"
-            " the training dynamics would not match"
-        )
-    model.load_state_dict(state["model_state"])
-    if optimizer is not None:
-        optimizer.load_state_dict(state["optimizer_state"])
-    return int(state["epoch"]), float(state["best_error"])
-
-
 def fit(
     model: GazeNet,
     train_loader: DataLoader[Any],
@@ -319,6 +227,7 @@ def fit(
             save_checkpoint(
                 checkpoint_dir / "best.pt", model, optimizer, epoch, best_error, config
             )
+            export_onnx(checkpoint_dir / "best.onnx", model)
         save_checkpoint(last_path, model, optimizer, epoch, best_error, config)
 
         logger.log({
