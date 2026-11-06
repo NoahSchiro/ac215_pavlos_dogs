@@ -11,6 +11,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
+    "@techstark/opencv-js": "5.0.0-release.1",
+    "onnxruntime-web": "^1.31.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -21,6 +24,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/browser-preview": "^5.0.5",
     "jsdom": "^29.1.1",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
