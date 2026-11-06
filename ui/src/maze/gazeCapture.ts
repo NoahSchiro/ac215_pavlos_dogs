@@ -1,4 +1,3 @@
-
 import type { ImageArray } from '../vision/utils'
 
 /** Convert a webcam video frame into an RGB image for gaze inference. */
