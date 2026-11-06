@@ -14,6 +14,7 @@ import tarfile
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -164,6 +165,112 @@ def head_pose_est(
     return rotation, translation
 
 
+# Fixed normalization geometry. Every sample from every dataset must use
+# these, in both Python and TypeScript -- they define the canonical frame the
+# model is trained in, so a mismatch silently shifts every crop at inference.
+NORM_DIST_CM = 60.0
+NORM_FOCAL_PX = 960.0
+NORM_FACE_SIZE_PX = 224
+NORM_EYE_SIZE_PX = (36, 60)  # (height, width)
+
+# Iris centres from the Face Mesh.
+LEFT_IRIS_ID = 473
+RIGHT_IRIS_ID = 468
+
+
+@dataclass(frozen=True)
+class NormalizationTransforms:
+    """The geometry `normalize_face` warps with, without the warping.
+
+    Split out so the TypeScript port can be checked against the exact
+    matrices Python computes rather than against its own reimplementation
+    of them; `model/tools/gen_parity_fixtures.py` records these.
+    """
+
+    r_virtual: NDArray[np.float64]
+    """(3, 3) virtual camera rotation."""
+    h_norm: NDArray[np.float64]
+    """(3, 3) real pixel -> virtual pixel homography."""
+    h_src_to_dst: NDArray[np.float64]
+    """(3, 3) its inverse, used to place the eye crops."""
+    left_xy: tuple[float, float]
+    """Left iris centre in the normalized face crop."""
+    right_xy: tuple[float, float]
+    """Right iris centre in the normalized face crop."""
+
+
+def normalization_transforms(
+    landmarks: list[PointPx],
+    R: NDArray[np.float64],
+    t: NDArray[np.float64],
+    intrinsics: CameraIntrinsics,
+) -> NormalizationTransforms:
+    """Virtual-camera geometry for one face, given its pose.
+
+    Args:
+        landmarks: pixel-space Face Mesh points (needs the iris points
+            468/473).
+        R, t: head pose from `head_pose_est` (model -> camera frame).
+        intrinsics: camera calibration for this image.
+    """
+    if len(landmarks) < max(LEFT_IRIS_ID, RIGHT_IRIS_ID) + 1:
+        raise ValueError(
+            f"normalization needs the full refined Face Mesh"
+            f" (>= {max(LEFT_IRIS_ID, RIGHT_IRIS_ID) + 1} points),"
+            f" got {len(landmarks)}"
+        )
+
+    def unit(v: NDArray[np.float64]) -> NDArray[np.float64]:
+        return v / np.linalg.norm(v)
+
+    # Virtual camera rotation:
+    # z-axis = camera to face
+    # x-axis = straight up
+    z_axis = unit(R @ np.array([0.0, 0.0, 1.0]))
+    head_x = R @ np.array([1.0, 0.0, 0.0])
+    # this trick ensures that the x_axis is orthogonal with the z-axis,
+    # even if it is not *exactly* the x rotation of the head
+    x_axis = unit(head_x - (head_x @ z_axis) * z_axis)
+    y_axis = np.cross(z_axis, x_axis)
+    r_virtual = np.column_stack((x_axis, y_axis, z_axis))
+
+    # Virtual camera center
+    c_virtual = t - NORM_DIST_CM * z_axis
+    k = np.array(
+        [  # camera specs
+            [intrinsics.focal_length_px, 0.0, intrinsics.principal_point.x],
+            [0.0, intrinsics.focal_length_px, intrinsics.principal_point.y],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    k_norm = np.array(
+        [  # virtual camera specs
+            [NORM_FOCAL_PX, 0.0, NORM_FACE_SIZE_PX / 2],
+            [0.0, NORM_FOCAL_PX, NORM_FACE_SIZE_PX / 2],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+
+    # h_norm answers: for each pixel captured by a real camera, where would
+    # that be on an image taken by our virtual camera
+    h_norm = NORM_DIST_CM * k @ r_virtual @ np.linalg.inv(k_norm) + (k @ c_virtual)[
+        :, None
+    ] * np.array([[0.0, 0.0, 1.0]])
+    h_src_to_dst = np.linalg.inv(h_norm)
+
+    def warped(point: PointPx) -> tuple[float, float]:
+        out = h_src_to_dst @ np.array([point.x, point.y, 1.0])
+        return out[0] / out[2], out[1] / out[2]
+
+    return NormalizationTransforms(
+        r_virtual=r_virtual,
+        h_norm=h_norm,
+        h_src_to_dst=h_src_to_dst,
+        left_xy=warped(landmarks[LEFT_IRIS_ID]),
+        right_xy=warped(landmarks[RIGHT_IRIS_ID]),
+    )
+
+
 def normalize_face(
     image: ImageArray,
     landmarks: list[PointPx],
@@ -186,94 +293,26 @@ def normalize_face(
         normalize face crop, normalized eye crops, and the virtual
         camera rotation R_norm.
     """
-    # Iris centres from the Face Mesh.
-    left_iris_id = 473
-    right_iris_id = 468
-
-    # Check we have enough landmarks
-    if len(landmarks) < max(left_iris_id, right_iris_id) + 1:
-        raise ValueError(
-            f"normalization needs the full refined Face Mesh"
-            f" (>= {max(left_iris_id, right_iris_id) + 1} points),"
-            f" got {len(landmarks)}"
-        )
-
-    def normalize(v: NDArray[np.float64]) -> NDArray[np.float64]:
-        return v / np.linalg.norm(v)
-
-    # Fixed camera parameters for normalization. These
-    # need be identical for every sample from every dataset
-    # in both python and typescript
-    norm_dist = 60.0  # (cm)
-    norm_focal = 960.0  # (cm)
-    face_size = 224  # (px)
-
-    # Virtual camera rotation:
-    # z-axis = camera to face
-    # x-axis = straight up
-    z_axis = normalize(R @ np.array([0.0, 0.0, 1.0]))
-    head_x = R @ np.array([1.0, 0.0, 0.0])
-    # this trick ensures that the x_axis is orthogonal with the z-axis,
-    # even if it is not *exactly* the x rotation of the head
-    x_axis = normalize(head_x - (head_x @ z_axis) * z_axis)
-    y_axis = np.cross(z_axis, x_axis)
-    R_virtual = np.column_stack((x_axis, y_axis, z_axis))
-
-    # Virtual camera center
-    C_virtual = t - norm_dist * z_axis
-    K = np.array(
-        [  # camera specs
-            [intrinsics.focal_length_px, 0.0, intrinsics.principal_point.x],
-            [0.0, intrinsics.focal_length_px, intrinsics.principal_point.y],
-            [0.0, 0.0, 1.0],
-        ]
-    )
-    K_norm = np.array(
-        [  # virtual camera specs
-            [norm_focal, 0.0, face_size / 2],
-            [0.0, norm_focal, face_size / 2],
-            [0.0, 0.0, 1.0],
-        ]
-    )
-
-    # H_norm is a translation matrix which answers: for each pixel captured by
-    # a real camera, where would that be on on an image taken by our virtual camera
-    H_norm = norm_dist * K @ R_virtual @ np.linalg.inv(K_norm) + (K @ C_virtual)[
-        :, None
-    ] * np.array([[0.0, 0.0, 1.0]])
-
-    # Finally we can apply the rotations / translations to our assets
+    transforms = normalization_transforms(landmarks, R, t, intrinsics)
     face = np.asarray(
         cv2.warpPerspective(
             image,
-            H_norm,
-            (face_size, face_size),
+            transforms.h_norm,
+            (NORM_FACE_SIZE_PX, NORM_FACE_SIZE_PX),
             flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
         ),
         dtype=np.uint8,
     )
-
-    H_src_to_dst = np.linalg.inv(H_norm)
-
-    eye_size = (36, 60)  # (height px, width px)
-
-    def warped(point: PointPx) -> tuple[float, float]:
-        out = H_src_to_dst @ np.array([point.x, point.y, 1.0])
-        return out[0] / out[2], out[1] / out[2]
-
+    height, width = NORM_EYE_SIZE_PX
     left = np.asarray(
-        cv2.getRectSubPix(
-            face, (eye_size[1], eye_size[0]), warped(landmarks[left_iris_id])
-        ),
+        cv2.getRectSubPix(face, (width, height), transforms.left_xy),
         dtype=np.uint8,
     )
     right = np.asarray(
-        cv2.getRectSubPix(
-            face, (eye_size[1], eye_size[0]), warped(landmarks[right_iris_id])
-        ),
+        cv2.getRectSubPix(face, (width, height), transforms.right_xy),
         dtype=np.uint8,
     )
-    return face, left, right, R_virtual
+    return face, left, right, transforms.r_virtual
 
 
 def transform_label(

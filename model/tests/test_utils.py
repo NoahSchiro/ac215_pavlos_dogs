@@ -22,9 +22,12 @@ from src.data.schema import (
 from src.data.utils import (
     _GENERIC_FACE_MODEL,
     _MODEL_LANDMARK_IDS,
+    NORM_EYE_SIZE_PX,
+    NORM_FACE_SIZE_PX,
     get_landmarker,
     head_pose_est,
     landmark_detection,
+    normalization_transforms,
     normalize_face,
     transform_label,
 )
@@ -270,3 +273,69 @@ def make_filter_sample(**overrides: Any) -> Sample:
     }
     values.update(overrides)
     return Sample(**values)
+
+
+def test_normalization_transforms_reproduce_normalize_face() -> None:
+    """The split-out geometry is the geometry normalize_face actually warps with.
+
+    `tools/gen_parity_fixtures.py` records these matrices as the reference the
+    TypeScript port is checked against, so they have to be the same ones the
+    crops come from -- not a second implementation that happens to agree today.
+    """
+    image = load_face_image()
+    landmarks = landmark_detection(get_landmarker(), image)
+    assert landmarks is not None
+    intrinsics = CameraIntrinsics(
+        focal_length_px=996.4509,
+        principal_point=PointPx(x=624.6634, y=364.0874),
+    )
+    R, t = head_pose_est(landmarks, intrinsics)
+
+    face, left, right, r_virtual = normalize_face(image, landmarks, R, t, intrinsics)
+    transforms = normalization_transforms(landmarks, R, t, intrinsics)
+
+    assert np.array_equal(r_virtual, transforms.r_virtual)
+
+    replayed_face = cv2.warpPerspective(
+        image,
+        transforms.h_norm,
+        (NORM_FACE_SIZE_PX, NORM_FACE_SIZE_PX),
+        flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+    )
+    assert np.array_equal(face, replayed_face)
+
+    height, width = NORM_EYE_SIZE_PX
+    assert np.array_equal(
+        left, cv2.getRectSubPix(face, (width, height), transforms.left_xy)
+    )
+    assert np.array_equal(
+        right, cv2.getRectSubPix(face, (width, height), transforms.right_xy)
+    )
+
+
+def test_normalization_transforms_homographies_are_inverses() -> None:
+    image = load_face_image()
+    landmarks = landmark_detection(get_landmarker(), image)
+    assert landmarks is not None
+    intrinsics = CameraIntrinsics(
+        focal_length_px=996.4509,
+        principal_point=PointPx(x=624.6634, y=364.0874),
+    )
+    R, t = head_pose_est(landmarks, intrinsics)
+
+    transforms = normalization_transforms(landmarks, R, t, intrinsics)
+    assert np.allclose(transforms.h_src_to_dst @ transforms.h_norm, np.eye(3))
+    # The virtual camera rotation is a rotation: orthonormal, right-handed.
+    assert np.allclose(transforms.r_virtual.T @ transforms.r_virtual, np.eye(3))
+    assert np.isclose(np.linalg.det(transforms.r_virtual), 1.0)
+
+
+def test_normalization_transforms_rejects_landmark_lists_without_the_irises() -> None:
+    intrinsics = CameraIntrinsics(
+        focal_length_px=996.4509,
+        principal_point=PointPx(x=624.6634, y=364.0874),
+    )
+    with pytest.raises(ValueError, match="refined Face Mesh"):
+        normalization_transforms(
+            [PointPx(x=0.0, y=0.0)] * 10, np.eye(3), np.zeros(3), intrinsics
+        )

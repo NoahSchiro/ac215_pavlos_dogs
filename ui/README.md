@@ -67,7 +67,7 @@ src/
     utils.test.ts     line-for-line port of model/tests/test_utils.py
     parity.test.ts    parity against recorded native cv2 outputs
     model.test.ts     inference parity against Python onnxruntime
-    fixtures/         face.jpg + reference outputs generated in model/
+    fixtures/         face.jpg + reference outputs; see note below
   test-setup.ts       jest-dom matchers + Testing Library cleanup
 ```
 
@@ -94,6 +94,23 @@ The FaceLandmarker is `@mediapipe/tasks-vision` with the same options as
 `get_landmarker` in `model/src/data/utils.py`. It fetches `landmarker.task`
 from the same URL the Python side does, and its wasm runtime from the
 jsdelivr CDN pinned to the installed package version.
+
+### Parity fixtures
+
+`fixtures/` holds `face.jpg` and the reference outputs `parity.test.ts`
+compares this port against: the landmarks, head pose and homographies in
+`ref.json`, the three expected crops as raw `.bin` bytes, and `cv2_probes.json`
+-- recorded inputs and outputs for the individual cv2 primitives `cv.ts`
+reimplements.
+
+They are generated from the Python pipeline by
+`model/tools/gen_parity_fixtures.py`, and CI regenerates and verifies them on
+every pull request. Do not hand-edit them: if a test here starts failing
+against a fixture, either this port drifted from `model/src/data/utils.py` or
+the preprocessing changed and the fixtures need regenerating, and the
+generator is what tells the two apart. See `model/README.md` for how to run it
+(it needs Linux, and should be run on amd64 -- the crop comparisons here are
+byte-exact and MediaPipe is not bit-reproducible across architectures).
 
 ## Gaze inference
 
