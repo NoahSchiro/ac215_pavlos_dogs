@@ -1,0 +1,31 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[project]
+name = "pipeline"
+version = "0.1.0"
+description = "Vertex AI training pipeline for the gaze model"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "kfp>=2.18.0",
+    "google-cloud-aiplatform>=2.6.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = "kfp.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "google.cloud.*"
+ignore_missing_imports = true
