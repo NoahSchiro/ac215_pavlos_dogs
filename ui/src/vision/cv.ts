@@ -32,11 +32,16 @@ let cached: Promise<CV> | null = null
 /** Load and initialize the OpenCV WASM runtime once per page. */
 export function loadCv(): Promise<CV> {
   cached ??= (async () => {
-    const mod = (await import('@techstark/opencv-js')) as unknown as {
-      default?: unknown
-    }
-    return (await (mod.default ?? mod)) as CV
+    // Through ./opencvRuntime rather than a direct dynamic import of the
+    // package: see that file for why the direct import fails in production.
+    const { getCv } = await import('./opencvRuntime')
+    return (await getCv()) as CV
   })()
+  // A failed load is not cached, so the next frame retries instead of every
+  // later frame failing on the same rejected promise.
+  cached.catch(() => {
+    cached = null
+  })
   return cached
 }
 

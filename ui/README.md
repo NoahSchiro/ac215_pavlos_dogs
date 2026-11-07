@@ -106,6 +106,11 @@ from the best checkpoint's `best.pt`; copy it here after training:
 cp model/checkpoints/<run>/best.onnx ui/public/models/gazenet.onnx
 ```
 
+That bundled copy is only the default. Which model the browser loads is
+runtime configuration (`MODEL_URL`, served as `/config.json` by the nginx
+container), so a deployment points at a published model in Cloud Storage
+without rebuilding the image: see `deploy/README.md`.
+
 The public API mirrors the preprocessing pipeline:
 
 - `loadGazeModel()` creates the inference session on the wasm CPU backend

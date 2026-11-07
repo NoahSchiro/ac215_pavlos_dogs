@@ -1,0 +1,19 @@
+# Per-frame time in the browser, from webcam frame to gaze: landmarks, head
+# pose, warps and the ONNX forward pass. It sets how responsive control feels.
+description: Mean in-browser time per frame (preprocessing plus inference), per telemetry window.
+filter: 'resource.type="cloud_run_revision" AND jsonPayload.type="gaze_telemetry" AND jsonPayload.ev="frames"'
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: ms
+  labels:
+    - key: model
+      valueType: STRING
+valueExtractor: EXTRACT(jsonPayload.lat_mean)
+labelExtractors:
+  model: EXTRACT(jsonPayload.model)
+bucketOptions:
+  exponentialBuckets:
+    numFiniteBuckets: 20
+    growthFactor: 1.5
+    scale: 10

@@ -1,0 +1,21 @@
+# Share of camera frames that produced a gaze, per ~30 s window of a maze
+# session. The headline health number: it falls when users' faces stop being
+# found or a model regresses, and it is split by model version.
+description: Share of frames that produced a gaze prediction, per telemetry window.
+filter: 'resource.type="cloud_run_revision" AND jsonPayload.type="gaze_telemetry" AND jsonPayload.ev="frames"'
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1"
+  labels:
+    - key: model
+      valueType: STRING
+      description: Model version (models/<version>/gazenet.onnx).
+valueExtractor: EXTRACT(jsonPayload.track_rate)
+labelExtractors:
+  model: EXTRACT(jsonPayload.model)
+bucketOptions:
+  linearBuckets:
+    numFiniteBuckets: 20
+    width: 0.05
+    offset: 0
