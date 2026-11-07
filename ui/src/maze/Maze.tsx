@@ -40,7 +40,11 @@ function randomPositions(): {
   return { player, cheese }
 }
 
-export default function Maze() {
+interface MazeProps {
+  gazeDirection?: 'up' | 'down' | 'left' | 'right' | null
+}
+
+export default function Maze({ gazeDirection = null }: MazeProps) {
   // Generate the maze and starting positions together.
   const [game, setGame] = useState(() => {
     const positions = randomPositions()
@@ -174,6 +178,20 @@ export default function Maze() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [movePlayer])
+
+
+  // Move Pavlos using gaze predictions.
+useEffect(() => {
+  if (!gazeDirection) return
+
+  movePlayer(gazeDirection)
+
+  const timer = setInterval(() => {
+    movePlayer(gazeDirection)
+  }, MOVE_INTERVAL)
+
+  return () => clearInterval(timer)
+}, [gazeDirection, movePlayer])
 
   // Winning depends on the cheese's randomized position.
   const hasWon = player.row === cheese.row && player.col === cheese.col
