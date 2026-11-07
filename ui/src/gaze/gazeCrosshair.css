@@ -1,0 +1,68 @@
+/* Covers the viewport; gaze fractions are relative to the screen, not the maze. */
+.gaze-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.gaze-crosshair,
+.gaze-raw {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transition: left 150ms linear, top 150ms linear;
+}
+
+.gaze-crosshair-ring {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border: 2px solid #e8457c;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(232, 69, 124, 0.45);
+}
+
+.gaze-crosshair-line {
+  position: absolute;
+  background: #e8457c;
+}
+
+.gaze-crosshair-line.horizontal {
+  width: 44px;
+  height: 2px;
+  margin: -1px 0 0 -22px;
+}
+
+.gaze-crosshair-line.vertical {
+  width: 2px;
+  height: 44px;
+  margin: -22px 0 0 -1px;
+}
+
+.gaze-raw::before {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: rgba(232, 69, 124, 0.35);
+}
+
+:root[data-theme='dark'] .gaze-crosshair-ring {
+  border-color: #ff7aa8;
+  box-shadow: 0 0 10px rgba(255, 122, 168, 0.5);
+}
+
+:root[data-theme='dark'] .gaze-crosshair-line {
+  background: #ff7aa8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gaze-crosshair,
+  .gaze-raw {
+    transition: none;
+  }
+}
