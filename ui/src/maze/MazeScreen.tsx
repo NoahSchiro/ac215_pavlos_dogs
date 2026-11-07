@@ -8,6 +8,7 @@ import {
   type Direction,
 } from './gazeCapture'
 import Maze from './Maze'
+import { GazeKalmanFilter } from '../gaze/kalman'
 
 interface Props {
   onBack: () => void
@@ -58,6 +59,7 @@ export function MazeScreen({ onBack }: Props) {
         ])
 
         if (cancelled) return
+        const kf = new GazeKalmanFilter()
         setGazeStatus('Tracking gaze')
 
         async function predict() {
@@ -74,13 +76,20 @@ export function MazeScreen({ onBack }: Props) {
 
             if (cancelled) return
 
+            const now = performance.now()
+
             if (result === null) {
+              kf.update(null, now)
               setGazeDirection(null)
             } else if (typeof result === 'string') {
+              kf.update(null, now)
               setGazeDirection(null)
               setGazeStatus(`Tracking paused: ${result}`)
             } else {
-              setGazeDirection(gazeToDirection(result.x, result.y))
+              const smoothed = kf.update(result, now)
+              setGazeDirection(
+                smoothed ? gazeToDirection(smoothed.x, smoothed.y) : null,
+              )
               setGazeStatus('Tracking gaze')
             }
           } catch (err) {
