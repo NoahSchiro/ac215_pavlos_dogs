@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
+import type { FaceLandmarker } from '@mediapipe/tasks-vision'
+import { correctGaze, fitCalibration, type CalibrationFit } from '../calibration/fit'
+import type { CalibrationResult } from '../calibration/points'
+import type { RidgeFit } from '../calibration/ridge'
 import { useCamera } from '../calibration/useCamera'
 import { getLandmarker } from '../vision/utils'
-import { loadGazeModel, predictGaze } from '../vision/model'
-import { captureGazeFrame } from './gazeCapture'
+import { loadGazeModel, predictGaze, type GazeModel } from '../vision/model'
+import { captureGazeFrame, decodeGazeFrame, estimateIntrinsics } from './gazeCapture'
 import Maze from './Maze'
 
 type Direction = 'up' | 'down' | 'left' | 'right'
 
 interface Props {
   onBack: () => void
+  /** This session's calibration run, if the user has calibrated. */
+  calibration: CalibrationResult | null
 }
 
 const PREDICTION_INTERVAL = 200
@@ -27,7 +33,30 @@ function gazeToDirection(x: number, y: number): Direction | null {
   return dy < 0 ? 'up' : 'down'
 }
 
-export function MazeScreen({ onBack }: Props) {
+// One fit per calibration run, kept for the page session so re-entering the
+// maze does not re-run the model over every calibration frame. A failed fit is
+// evicted rather than cached, so the next visit retries it.
+const calibrationFits = new WeakMap<CalibrationResult, Promise<CalibrationFit>>()
+
+function fitFor(
+  calibration: CalibrationResult,
+  landmarker: FaceLandmarker,
+  model: GazeModel,
+): Promise<CalibrationFit> {
+  let fit = calibrationFits.get(calibration)
+  if (!fit) {
+    fit = fitCalibration(calibration, async (frame) => {
+      const image = await decodeGazeFrame(frame)
+      const result = await predictGaze(landmarker, model, image, estimateIntrinsics(image))
+      return typeof result === 'string' ? null : result
+    })
+    calibrationFits.set(calibration, fit)
+    fit.catch(() => calibrationFits.delete(calibration))
+  }
+  return fit
+}
+
+export function MazeScreen({ onBack, calibration }: Props) {
   const camera = useCamera()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -72,7 +101,32 @@ export function MazeScreen({ onBack }: Props) {
         ])
 
         if (cancelled) return
-        setGazeStatus('Tracking gaze')
+
+        let fit: RidgeFit | null = null
+        let tracking = 'Tracking gaze (not calibrated)'
+        if (calibration) {
+          setGazeStatus('Applying calibration...')
+          try {
+            const result = await fitFor(calibration, landmarker, model)
+            if (cancelled) return
+            console.info('calibration fit', result)
+            if (result.status === 'ok') {
+              fit = result.fit
+              tracking = 'Tracking gaze (calibrated)'
+            } else {
+              tracking = `Tracking gaze (calibration unusable: ${
+                result.reason === 'flat_predictions'
+                  ? 'gaze did not follow the targets'
+                  : 'face not found in enough frames'
+              }; recalibrate from Home)`
+            }
+          } catch (err) {
+            if (cancelled) return
+            console.warn('calibration fit failed', err)
+            tracking = 'Tracking gaze (calibration failed; recalibrate from Home)'
+          }
+        }
+        setGazeStatus(tracking)
 
         async function predict() {
           if (cancelled) return
@@ -85,20 +139,11 @@ export function MazeScreen({ onBack }: Props) {
               const image = captureGazeFrame(video, canvas)
 
               if (image) {
-                // Approximate webcam intrinsics; actual focal length varies by device.
-                const intrinsics = {
-                  focalLengthPx: Math.max(image.cols, image.rows),
-                  principalPoint: {
-                    x: image.cols / 2,
-                    y: image.rows / 2,
-                  },
-                }
-
                 const result = await predictGaze(
                   landmarker,
                   model,
                   image,
-                  intrinsics,
+                  estimateIntrinsics(image),
                 )
 
                 if (cancelled) return
@@ -107,8 +152,9 @@ export function MazeScreen({ onBack }: Props) {
                   setGazeDirection(null)
                   setGazeStatus(`Tracking paused: ${result}`)
                 } else {
-                  setGazeDirection(gazeToDirection(result.x, result.y))
-                  setGazeStatus('Tracking gaze')
+                  const gaze = correctGaze(fit, result)
+                  setGazeDirection(gazeToDirection(gaze.x, gaze.y))
+                  setGazeStatus(tracking)
                 }
               } else {
                 setGazeDirection(null)
@@ -146,7 +192,7 @@ export function MazeScreen({ onBack }: Props) {
       clearTimeout(timer)
       setGazeDirection(null)
     }
-  }, [status, stream])
+  }, [status, stream, calibration])
 
   return (
     <main className="maze-screen">

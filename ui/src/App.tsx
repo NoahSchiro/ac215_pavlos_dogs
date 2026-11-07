@@ -52,7 +52,7 @@ function App() {
   return (
     <>
       {view === 'maze' ? (
-        <MazeScreen onBack={goHome} />
+        <MazeScreen onBack={goHome} calibration={calibration} />
       ) : (
         <HomeScreen
           calibration={calibration}
