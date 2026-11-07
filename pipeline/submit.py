@@ -36,11 +36,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test", type=int, default=14)
     parser.add_argument("--wandb-project", default="gaze-maze")
     parser.add_argument(
+        "--models-bucket",
+        help="public bucket the trained model is published to for the UI;"
+        " defaults to <project>-gaze-models, as deploy/setup-gcp.sh creates it",
+    )
+    parser.add_argument(
         "--compile-only",
         action="store_true",
         help="write the spec and stop; needs no GCP credentials",
     )
     return parser
+
+
+def models_bucket_name(arg: str | None, project: str) -> str:
+    """The models bucket as a bare name, defaulting as deploy/setup-gcp.sh does."""
+    return (arg or f"{project}-gaze-models").removeprefix("gs://").rstrip("/")
 
 
 def main() -> None:
@@ -85,6 +95,7 @@ def main() -> None:
             "val_participant": args.val,
             "test_participant": args.test,
             "wandb_project": args.wandb_project,
+            "models_bucket": models_bucket_name(args.models_bucket, args.project),
         },
         enable_caching=True,
     )

@@ -13,7 +13,8 @@ from pathlib import Path
 import pytest
 from kfp import compiler
 
-from gaze_pipeline import IMAGE, gaze_pipeline, gcs_mount
+from gaze_pipeline import _PUBLISH_SH, IMAGE, gaze_pipeline, gcs_mount
+from submit import models_bucket_name
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,6 +30,7 @@ def test_pipeline_compiles_with_the_expected_steps(spec: dict) -> None:
     assert sorted(spec["root"]["dag"]["tasks"]) == [
         "evaluate-op",
         "preprocess-op",
+        "publish-op",
         "train-op",
     ]
 
@@ -39,6 +41,7 @@ def test_steps_run_in_order(spec: dict) -> None:
     assert tasks["preprocess-op"].get("dependentTasks", []) == []
     assert tasks["train-op"]["dependentTasks"] == ["preprocess-op"]
     assert tasks["evaluate-op"]["dependentTasks"] == ["train-op"]
+    assert tasks["publish-op"]["dependentTasks"] == ["evaluate-op"]
 
 
 def test_every_step_uses_the_repository_image(spec: dict) -> None:
@@ -111,3 +114,67 @@ def test_submit_refuses_the_placeholder_image() -> None:
     )
     assert result.returncode != 0
     assert "PROJECT placeholder" in result.stderr
+
+
+def publish(tmp_path: Path, checkpoints: Path) -> subprocess.CompletedProcess[str]:
+    """Run the publish step's script for real, with tmp_path standing in for /gcs."""
+    out = tmp_path / "outputs" / "model_url"
+    return subprocess.run(
+        ["bash", "-c", _PUBLISH_SH, str(checkpoints), "models-bucket", str(out)],
+        env={**os.environ, "GCS_MOUNT": str(tmp_path / "gcs")},
+        capture_output=True,
+        text=True,
+        check=False,  # the tests assert on failures too
+    )
+
+
+def make_run(checkpoints: Path, name: str, model: bytes) -> None:
+    run = checkpoints / name
+    run.mkdir(parents=True)
+    (run / "best.onnx").write_bytes(model)
+    (run / "best_metrics.json").write_text('{"mean": 0.139}')
+
+
+def test_publish_writes_the_newest_run_where_the_ui_loads_it(tmp_path: Path) -> None:
+    checkpoints = tmp_path / "checkpoints"
+    make_run(checkpoints, "20261101-090000", b"old")
+    make_run(checkpoints, "20261107-120000", b"new")
+
+    result = publish(tmp_path, checkpoints)
+
+    assert result.returncode == 0, result.stderr
+    published = tmp_path / "gcs" / "models-bucket" / "models" / "20261107-120000"
+    assert (published / "gazenet.onnx").read_bytes() == b"new"
+    assert (published / "metrics.json").read_text() == '{"mean": 0.139}'
+    url = (tmp_path / "outputs" / "model_url").read_text()
+    assert url == (
+        "https://storage.googleapis.com/models-bucket/models/20261107-120000/gazenet.onnx"
+    )
+
+
+def test_publish_is_idempotent_but_never_overwrites_a_version(tmp_path: Path) -> None:
+    checkpoints = tmp_path / "checkpoints"
+    make_run(checkpoints, "20261107-120000", b"weights")
+    assert publish(tmp_path, checkpoints).returncode == 0
+    # A retried step republishes the same bytes: fine.
+    assert publish(tmp_path, checkpoints).returncode == 0
+    # Different bytes under a published version: refused, original intact.
+    (checkpoints / "20261107-120000" / "best.onnx").write_bytes(b"different")
+    result = publish(tmp_path, checkpoints)
+    assert result.returncode != 0
+    assert "immutable" in result.stderr
+    published = tmp_path / "gcs/models-bucket/models/20261107-120000/gazenet.onnx"
+    assert published.read_bytes() == b"weights"
+
+
+def test_publish_fails_when_training_left_no_onnx(tmp_path: Path) -> None:
+    checkpoints = tmp_path / "checkpoints"
+    (checkpoints / "20261107-120000").mkdir(parents=True)
+    result = publish(tmp_path, checkpoints)
+    assert result.returncode != 0
+    assert "no best.onnx" in result.stderr
+
+
+def test_models_bucket_defaults_as_setup_gcp_creates_it() -> None:
+    assert models_bucket_name(None, "my-proj") == "my-proj-gaze-models"
+    assert models_bucket_name("gs://other-bucket/", "my-proj") == "other-bucket"

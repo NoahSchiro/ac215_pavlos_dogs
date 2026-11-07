@@ -1,4 +1,4 @@
-"""Vertex AI pipeline: preprocess, train, evaluate.
+"""Vertex AI pipeline: preprocess, train, evaluate, publish.
 
 Each step runs the container the repository already builds
 (`model/Dockerfile`) with a different command. No training logic is
@@ -41,6 +41,29 @@ echo "reporting metrics from $latest"
 mkdir -p "$(dirname "$1")"
 cp "$latest/best_metrics.json" "$1"
 cat "$1"
+"""
+
+
+_PUBLISH_SH = """set -euo pipefail
+checkpoints="$0"; bucket="$1"; out="$2"
+root="${GCS_MOUNT:-/gcs}/$bucket"
+latest="$(ls -d "$checkpoints"/*/ 2>/dev/null | sort | tail -1)"
+latest="${latest%/}"
+if [ -z "$latest" ] || [ ! -f "$latest/best.onnx" ]; then
+  echo "no best.onnx in the newest run under $checkpoints" >&2; exit 1
+fi
+version="$(basename "$latest")"
+dest="$root/models/$version"
+if [ -e "$dest/gazenet.onnx" ] && ! cmp -s "$latest/best.onnx" "$dest/gazenet.onnx"; then
+  echo "$dest holds a different model; published versions are immutable" >&2; exit 1
+fi
+mkdir -p "$dest"
+cp "$latest/best.onnx" "$dest/gazenet.onnx"
+if [ -f "$latest/best_metrics.json" ]; then cp "$latest/best_metrics.json" "$dest/metrics.json"; fi
+url="https://storage.googleapis.com/$bucket/models/$version/gazenet.onnx"
+mkdir -p "$(dirname "$out")"
+printf '%s' "$url" > "$out"
+echo "published MODEL_URL=$url"
 """
 
 
@@ -111,9 +134,33 @@ def evaluate_op(checkpoint_dir: str, metrics: dsl.OutputPath(str)):  # type: ign
     )
 
 
+@dsl.container_component
+def publish_op(
+    checkpoint_dir: str,
+    models_bucket: str,
+    model_url: dsl.OutputPath(str),  # type: ignore[valid-type]
+):
+    """Publish the run's best.onnx where the UI can load it.
+
+    Copies it to gs://<models_bucket>/models/<run>/gazenet.onnx with the run's
+    metrics beside it -- the layout deploy/publish-model.sh writes too -- and
+    outputs the public URL, which is the MODEL_URL to deploy the UI with
+    (deploy/deploy-ui.sh). That bucket is public-read for browsers; the
+    checkpoints and data stay private.
+
+    A version is never overwritten with a different model. Republishing the
+    same bytes succeeds, so a retried step does not fail on its own output.
+    """
+    return dsl.ContainerSpec(
+        image=IMAGE,
+        command=["bash", "-c"],
+        args=[_PUBLISH_SH, checkpoint_dir, models_bucket, model_url],
+    )
+
+
 @dsl.pipeline(
     name="gaze-training",
-    description="Preprocess MPIIFaceGaze, train the gaze model, publish metrics.",
+    description="Preprocess MPIIFaceGaze, train the gaze model, report and publish it.",
 )
 def gaze_pipeline(
     data_root: str = "/gcs/ac215-gaze-data-rh/MPIIFaceGaze",
@@ -122,6 +169,7 @@ def gaze_pipeline(
     val_participant: int = 13,
     test_participant: int = 14,
     wandb_project: str = "gaze-maze",
+    models_bucket: str = "ac215-gaze-models",
 ) -> None:
     preprocess = preprocess_op(data_root=data_root)
     preprocess.set_display_name("preprocess (build cache)")
@@ -144,3 +192,8 @@ def gaze_pipeline(
     evaluate = evaluate_op(checkpoint_dir=checkpoint_dir)
     evaluate.after(train)
     evaluate.set_display_name("evaluate (publish metrics)")
+
+    # Only a run that produced its metrics gets published.
+    publish = publish_op(checkpoint_dir=checkpoint_dir, models_bucket=models_bucket)
+    publish.after(evaluate)
+    publish.set_display_name("publish model for the UI")

@@ -1,11 +1,15 @@
 # Vertex AI training pipeline
 
-Runs the existing training container on Vertex AI as a three-step pipeline:
+Runs the existing training container on Vertex AI as a four-step pipeline:
 
 ```
-preprocess  ->  train  ->  evaluate
-(build cache)   (train.py)  (publish metrics)
+preprocess  ->  train  ->  evaluate  ->  publish
+(build cache)   (train.py)  (metrics)     (model for the UI)
 ```
+
+The last step is the hand-off to serving: it copies the run's `best.onnx` to
+`gs://<models-bucket>/models/<run>/gazenet.onnx` and outputs its public URL,
+which is the `MODEL_URL` the UI is deployed with (`deploy/README.md`).
 
 Every step runs the **same image** that `model/Dockerfile` already builds, with a
 different command. No training logic lives here. A change to `train.py` needs no
@@ -72,6 +76,21 @@ docker push $IMAGE
 cd pipeline
 uv run submit.py --project $PROJECT --image $IMAGE --epochs 24
 ```
+
+The model is published to `--models-bucket`, which defaults to
+`<project>-gaze-models`, the public bucket `deploy/setup-gcp.sh` creates. The
+URL appears as the `model_url` output of the publish step in the run graph and
+in its logs (`published MODEL_URL=...`). Deploy it with:
+
+```bash
+MODEL_URL=<that url> deploy/deploy-ui.sh
+```
+
+A published version is never overwritten with different weights.
+Republishing identical bytes succeeds, so a retried step doesn't fail on its
+own earlier output. Objects written through the `/gcs` mount get Cloud
+Storage's default one-hour cache; `deploy/publish-model.sh` sets a longer
+`immutable` one.
 
 `--image` must be set before the pipeline module is imported, because KFP bakes
 the image into the compiled spec at compile time; it is deployment
