@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useCamera } from '../calibration/useCamera'
 import { getLandmarker } from '../vision/utils'
-import { loadGazeModel } from '../vision/model'
+import { loadGazeModel, type ScreenFraction } from '../vision/model'
+import { GazeCrosshair } from '../gaze/GazeCrosshair'
 import {
   gazeToDirection,
   runGazeInference,
@@ -22,6 +23,7 @@ export function MazeScreen({ onBack }: Props) {
 
   const [gazeDirection, setGazeDirection] = useState<Direction | null>(null)
   const [gazeStatus, setGazeStatus] = useState('Starting camera...')
+  const [gazePoint, setGazePoint] = useState<ScreenFraction | null>(null)
 
   const { start, status, stream, error } = camera
 
@@ -76,16 +78,20 @@ export function MazeScreen({ onBack }: Props) {
 
             if (result === null) {
               setGazeDirection(null)
+              setGazePoint(null)
             } else if (typeof result === 'string') {
               setGazeDirection(null)
+              setGazePoint(null)
               setGazeStatus(`Tracking paused: ${result}`)
             } else {
               setGazeDirection(gazeToDirection(result.x, result.y))
+              setGazePoint(result)
               setGazeStatus('Tracking gaze')
             }
           } catch (err) {
             if (cancelled) return
             setGazeDirection(null)
+            setGazePoint(null)
             setGazeStatus(
               err instanceof Error ? err.message : 'Gaze prediction failed',
             )
@@ -111,6 +117,7 @@ export function MazeScreen({ onBack }: Props) {
     return () => {
       cancelled = true
       clearTimeout(timer)
+      setGazePoint(null)
     }
   }, [status, stream])
 
@@ -127,6 +134,8 @@ export function MazeScreen({ onBack }: Props) {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       <Maze gazeDirection={gazeDirection} />
+
+      <GazeCrosshair gaze={gazePoint} />
 
       <p role="status" aria-live="polite">
         {status === 'denied' || status === 'unavailable'
