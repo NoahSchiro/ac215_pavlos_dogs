@@ -20,14 +20,10 @@ from torch.utils.data import DataLoader
 from src.data.gazecapture import GazeCapture
 from src.data.mpiifacegaze import MPII
 from src.training.calibration import fit_user_calibration
+from src.training.config import TrainConfig
+from src.training.export import load_checkpoint
 from src.training.logging import ConsoleLogger, WandbLogger, resolve_run_dir
-from src.training.loop import (
-    TrainConfig,
-    collect_predictions,
-    evaluate,
-    fit,
-    load_checkpoint,
-)
+from src.training.loop import collect_predictions, evaluate, fit
 from src.training.model import GazeNet
 
 NUM_PARTICIPANTS = 15
