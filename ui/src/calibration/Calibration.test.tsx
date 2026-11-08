@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Calibration } from './Calibration'
 import { CALIBRATION_POINTS, FRAMES_PER_POINT } from './points'
 import type { Camera, CameraStatus } from './useCamera'
+import { VALIDATION_POINTS } from './validation'
 
 vi.mock('./useCamera', () => ({ useCamera: vi.fn() }))
 vi.mock('./capture', () => ({ captureBurst: vi.fn() }))
@@ -58,6 +59,22 @@ beforeEach(() => {
 })
 
 describe('Calibration', () => {
+  it('captures only the four fixed validation targets when used for accuracy measurement', async () => {
+    const onComplete = vi.fn()
+    render(<Calibration purpose="validation" targets={VALIDATION_POINTS} onComplete={onComplete} onCancel={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Begin' }))
+    expect(screen.getByRole('application')).toHaveAttribute('aria-label', 'Gaze validation')
+    for (let i = 0; i < 4; i++) {
+      expect(screen.getByText(`Point ${i + 1} of 4`)).toBeInTheDocument()
+      await pressSpace()
+    }
+    const captured = onComplete.mock.calls[0][0]
+    expect(captured.samples).toHaveLength(12)
+    captured.samples.forEach((sample: { pointIndex: number; target: unknown }, i: number) => {
+      expect(sample.target).toEqual(VALIDATION_POINTS[Math.floor(i / 3)])
+    })
+  })
+
   it('starts the camera on mount', () => {
     render(<Calibration onComplete={vi.fn()} onCancel={vi.fn()} />)
     expect(camera.start).toHaveBeenCalledTimes(1)

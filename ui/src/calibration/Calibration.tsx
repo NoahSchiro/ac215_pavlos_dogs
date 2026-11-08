@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { captureBurst } from './capture'
+import { captureCameraSettings } from './cameraMetadata'
 import { Crosshair } from './Crosshair'
 import { enterFullscreen } from './fullscreen'
 import {
@@ -8,6 +9,7 @@ import {
   FRAME_INTERVAL_MS,
   type CalibrationResult,
   type CalibrationSample,
+  type NormalizedPoint,
 } from './points'
 import { useCamera } from './useCamera'
 import './calibration.css'
@@ -15,6 +17,8 @@ import './calibration.css'
 interface Props {
   onComplete: (result: CalibrationResult) => void
   onCancel: () => void
+  targets?: readonly NormalizedPoint[]
+  purpose?: 'calibration' | 'validation'
 }
 
 /**
@@ -26,7 +30,7 @@ interface Props {
  * and shows the first crosshair. Space captures a burst of frames labeled
  * with the current target, Escape cancels.
  */
-export function Calibration({ onComplete, onCancel }: Props) {
+export function Calibration({ onComplete, onCancel, targets = CALIBRATION_POINTS, purpose = 'calibration' }: Props) {
   const camera = useCamera()
   const videoRef = useRef<HTMLVideoElement>(null)
   const samplesRef = useRef<CalibrationSample[]>([])
@@ -40,8 +44,8 @@ export function Calibration({ onComplete, onCancel }: Props) {
   const [captureError, setCaptureError] = useState<string | null>(null)
 
   const { start, stop, status, stream } = camera
-  const total = CALIBRATION_POINTS.length
-  const point = CALIBRATION_POINTS[pointIndex]
+  const total = targets.length
+  const point = targets[pointIndex]
 
   useEffect(() => {
     activeRef.current = true
@@ -92,7 +96,7 @@ export function Calibration({ onComplete, onCancel }: Props) {
     setCaptureError(null)
 
     const index = pointIndex
-    const target = CALIBRATION_POINTS[index]
+    const target = targets[index]
     try {
       const frames = await captureBurst(video, FRAMES_PER_POINT, FRAME_INTERVAL_MS)
       // Camera shutdown cannot cancel JPEG encoding already in progress.
@@ -110,8 +114,9 @@ export function Calibration({ onComplete, onCancel }: Props) {
 
       if (index + 1 >= total) {
         doneRef.current = true
+        const capturedCamera = captureCameraSettings(stream)
         stop()
-        onComplete({ samples: samplesRef.current, completedAt: now })
+        onComplete({ samples: samplesRef.current, completedAt: now, camera: capturedCamera })
       } else {
         setPointIndex(index + 1)
       }
@@ -123,7 +128,7 @@ export function Calibration({ onComplete, onCancel }: Props) {
       capturingRef.current = false
       if (activeRef.current && !doneRef.current) setCapturing(false)
     }
-  }, [pointIndex, started, status, stop, onComplete, total])
+  }, [pointIndex, started, status, stop, stream, onComplete, total, targets])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -145,7 +150,7 @@ export function Calibration({ onComplete, onCancel }: Props) {
   const cameraFailed = status === 'denied' || status === 'unavailable'
 
   return (
-    <div className="calibration" role="application" aria-label="Gaze calibration">
+    <div className="calibration" role="application" aria-label={purpose === 'validation' ? 'Gaze validation' : 'Gaze calibration'}>
       <video ref={videoRef} autoPlay playsInline muted />
 
       {cameraFailed && (
@@ -175,6 +180,7 @@ export function Calibration({ onComplete, onCancel }: Props) {
             You will see {total} targets, one at a time. Look at each one and press Space.
             The page will go full screen.
           </p>
+          {purpose === 'validation' && <p>These fresh frames measure accuracy. They will not change your saved calibration.</p>}
           <button type="button" onClick={begin} autoFocus>
             Begin
           </button>

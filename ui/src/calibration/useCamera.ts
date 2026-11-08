@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { CAMERA_CONSTRAINTS } from './cameraMetadata'
 
 export type CameraStatus =
   | 'idle'
@@ -14,11 +15,6 @@ export interface Camera {
   error: string | null
   start: () => Promise<void>
   stop: () => void
-}
-
-const CONSTRAINTS: MediaStreamConstraints = {
-  video: { facingMode: 'user' },
-  audio: false,
 }
 
 function describeError(err: unknown): { status: CameraStatus; message: string } {
@@ -89,7 +85,7 @@ export function useCamera(): Camera {
     pendingRef.current = true
     const generation = generationRef.current
     try {
-      const s = await media.getUserMedia(CONSTRAINTS)
+      const s = await media.getUserMedia(CAMERA_CONSTRAINTS)
       const stale = !mountedRef.current || generation !== generationRef.current
       if (stale || streamRef.current) {
         stopTracks(s)

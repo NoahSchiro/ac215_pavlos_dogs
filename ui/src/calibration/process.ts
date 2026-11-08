@@ -1,0 +1,90 @@
+import { predictCalibrationImage, type CalibrationImagePrediction } from './inference'
+import { CALIBRATION_POINTS, type CalibrationResult, type CalibrationSample, type NormalizedPoint } from './points'
+import { fitCalibration, type CalibrationFit } from './ridge'
+
+export interface EvaluatedSample {
+  readonly sample: CalibrationSample
+  readonly result: CalibrationImagePrediction
+}
+
+export interface PersonalCalibration {
+  readonly capture: CalibrationResult
+  readonly frames: readonly EvaluatedSample[]
+  readonly validFrameCounts: readonly number[]
+  readonly fit: CalibrationFit
+}
+
+export interface CalibrationProgress {
+  readonly completed: number
+  readonly total: number
+}
+
+export type CalibrationTaskState =
+  | { status: 'idle' | 'cancelled' | 'restoring' | 'restored' | 'saving' | 'clearing' | 'cleared' | 'verifying' | 'verified' | 'validation-ready' | 'validation-cancelled' }
+  | ({ status: 'processing' } & CalibrationProgress)
+  | ({ status: 'validating' } & CalibrationProgress)
+  | { status: 'success'; validFrames: number; total: number }
+  | { status: 'error'; message: string; operation?: 'validation' }
+
+export type CalibrationProcessingResult =
+  | { ok: true; calibration: PersonalCalibration }
+  | { ok: false; reason: string; frames: readonly EvaluatedSample[]; missingPointIndices: readonly number[] }
+
+export async function processCalibration(
+  capture: CalibrationResult,
+  options: { signal?: AbortSignal; onProgress?: (progress: CalibrationProgress) => void } = {},
+): Promise<CalibrationProcessingResult> {
+  const { signal, onProgress } = options
+  signal?.throwIfAborted()
+  const frames: EvaluatedSample[] = []
+  const failure = (reason: string, missingPointIndices: number[] = []): CalibrationProcessingResult =>
+    ({ ok: false, reason, frames, missingPointIndices })
+
+  if (capture.samples.length === 0) {
+    return failure('No captured frames. Capture all nine targets again.', CALIBRATION_POINTS.map((_, i) => i))
+  }
+  const invalidIndex = capture.samples.findIndex((sample) => {
+    const target = CALIBRATION_POINTS[sample.pointIndex]
+    return !Number.isInteger(sample.pointIndex) || !target || !sample.target ||
+      sample.target.x !== target.x || sample.target.y !== target.y
+  })
+  if (invalidIndex !== -1) return failure(`Invalid target metadata for sample ${invalidIndex + 1}. Capture again.`)
+
+  const validFrameCounts = CALIBRATION_POINTS.map(() => 0)
+  const predictions: NormalizedPoint[] = []
+  const targets: NormalizedPoint[] = []
+  onProgress?.({ completed: 0, total: capture.samples.length })
+  for (const sample of capture.samples) {
+    signal?.throwIfAborted()
+    let result: CalibrationImagePrediction
+    try {
+      result = await predictCalibrationImage(sample.image)
+    } catch (error) {
+      result = { ok: false, stage: 'inference', reason: error instanceof Error ? error.message : String(error) }
+    }
+    signal?.throwIfAborted()
+    if (result.ok && (!Number.isFinite(result.prediction.x) || !Number.isFinite(result.prediction.y))) {
+      result = { ok: false, stage: 'inference', reason: 'non_finite_prediction' }
+    }
+    frames.push({ sample, result })
+    if (result.ok) {
+      validFrameCounts[sample.pointIndex]++
+      predictions.push(result.prediction)
+      targets.push(sample.target)
+    }
+    onProgress?.({ completed: frames.length, total: capture.samples.length })
+  }
+  signal?.throwIfAborted()
+  const missing = validFrameCounts.flatMap((count, index) => count === 0 ? [index] : [])
+  if (missing.length) {
+    const rejected = frames.map((frame) => frame.result).find((result) => !result.ok)
+    const detail = rejected && !rejected.ok ? ` First frame failure: ${rejected.stage}: ${rejected.reason}.` : ''
+    return failure(`No valid frame at target(s) ${missing.map((i) => i + 1).join(', ')}. Capture again.${detail}`, missing)
+  }
+  try {
+    const fit = fitCalibration(predictions, targets)
+    return { ok: true, calibration: { capture, frames, validFrameCounts, fit } }
+  } catch (error) {
+    return failure(`Calibration fitting failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}

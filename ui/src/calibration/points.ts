@@ -6,6 +6,8 @@
  * gaze model predicts in, so samples can be fed to per-user fitting directly.
  */
 
+import type { CaptureCamera } from './cameraMetadata'
+
 export interface NormalizedPoint {
   /** Horizontal position as a fraction of viewport width, 0 = left. */
   readonly x: number
@@ -31,6 +33,8 @@ export interface CalibrationSample {
 /** The output of one complete calibration run. */
 export interface CalibrationResult {
   readonly samples: readonly CalibrationSample[]
+  /** Actual capture track settings; absence prevents verified persistence/reuse. */
+  readonly camera?: CaptureCamera | null
   /** Completion time, milliseconds since the Unix epoch. */
   readonly completedAt: number
 }
