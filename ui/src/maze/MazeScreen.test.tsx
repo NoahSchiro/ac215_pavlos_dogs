@@ -9,7 +9,6 @@ import { loadGazeModel, predictGaze } from '../vision/model'
 vi.mock('../calibration/useCamera', () => ({ useCamera: vi.fn() }))
 vi.mock('../vision/utils', () => ({ getLandmarker: vi.fn() }))
 vi.mock('../vision/model', () => ({ loadGazeModel: vi.fn(), predictGaze: vi.fn() }))
-vi.mock('./gazeCapture', () => ({ captureGazeFrame: vi.fn(() => ({ rows: 480, cols: 640, data: new Uint8Array(640 * 480 * 3) })) }))
 vi.mock('./Maze', () => ({ default: ({ gazeDirection }: { gazeDirection?: string | null }) => <div data-testid="direction">{gazeDirection ?? 'stopped'}</div> }))
 
 beforeEach(() => {
@@ -25,6 +24,11 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
   vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(2)
+  vi.spyOn(HTMLVideoElement.prototype, 'videoWidth', 'get').mockReturnValue(640)
+  vi.spyOn(HTMLVideoElement.prototype, 'videoHeight', 'get').mockReturnValue(480)
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(640 * 480 * 4) }),
+  } as unknown as CanvasRenderingContext2D)
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 

@@ -30,6 +30,7 @@ type CalibrationProps = {
   purpose?: 'calibration' | 'validation'
 }
 let calibrationProps: CalibrationProps | null = null
+const targetByImage = new WeakMap<Blob, { x: number; y: number }>()
 
 vi.mock('./calibration/Calibration', () => ({
   Calibration: (props: CalibrationProps) => {
@@ -47,7 +48,9 @@ beforeEach(() => {
   vi.mocked(saveCalibration).mockReset().mockResolvedValue(undefined)
   vi.mocked(clearCalibration).mockReset().mockResolvedValue(undefined)
   vi.mocked(verifyCaptureCamera).mockReset().mockResolvedValue(undefined)
-  predict.mockReset().mockResolvedValue(successfulPrediction)
+  predict.mockReset().mockImplementation(async (image) => ({
+    ...successfulPrediction, prediction: targetByImage.get(image) ?? { x: 0.5, y: 0.5 },
+  } as CalibrationImagePrediction))
   calibrationProps = null
   fullscreenElement = null
   requestFullscreen.mockClear()
@@ -66,14 +69,18 @@ afterEach(() => {
 
 function fakeResult(count: number): CalibrationResult {
   return {
-    samples: Array.from({ length: count }, (_, i) => ({
-      image: new Blob(['x'], { type: 'image/jpeg' }),
-      target: CALIBRATION_POINTS[i % 9],
-      pointIndex: i % 9,
-      viewportWidth: 800,
-      viewportHeight: 600,
-      timestamp: 0,
-    })),
+    samples: Array.from({ length: count }, (_, i) => {
+      const image = new Blob(['x'], { type: 'image/jpeg' })
+      targetByImage.set(image, CALIBRATION_POINTS[i % 9])
+      return {
+        image,
+        target: CALIBRATION_POINTS[i % 9],
+        pointIndex: i % 9,
+        viewportWidth: 800,
+        viewportHeight: 600,
+        timestamp: 0,
+      }
+    }),
     completedAt: 0,
     camera: { deviceId: 'camera-a', label: 'Camera A', width: 640, height: 480, facingMode: 'user' },
   }
@@ -224,6 +231,24 @@ describe('App', () => {
     expect(screen.getByTestId('calibration-screen')).toBeInTheDocument()
     await act(async () => calibrationProps!.onComplete(fakeResult(9)))
     expect(await screen.findByText(/Calibration ready. 9 of 9 frames used/)).toBeInTheDocument()
+  })
+
+  it('keeps the verified calibration and saved record when replacement predictions lack variation', async () => {
+    const previous = testSession().record
+    vi.mocked(loadCalibration).mockResolvedValueOnce({ status: 'restored', record: previous })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify saved camera' }))
+    await screen.findByText(/Saved calibration camera verified/)
+    fireEvent.click(screen.getByRole('button', { name: /^Recalibrate/ }))
+    predict.mockResolvedValue(successfulPrediction)
+    await act(async () => calibrationProps!.onComplete(fakeResult(27)))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/insufficient.*variation/i)
+    expect(screen.getByRole('alert')).toHaveTextContent('Previous calibration kept')
+    expect(screen.getByText(/9 valid frames/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Validate calibration' })).toBeEnabled()
+    expect(saveCalibration).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry calibration' }))
+    expect(screen.getByTestId('calibration-screen')).toBeInTheDocument()
   })
 
   it('preserves an existing calibration when processing is cancelled', async () => {

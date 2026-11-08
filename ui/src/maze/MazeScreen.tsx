@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useCamera } from '../calibration/useCamera'
 import { getLandmarker } from '../vision/utils'
-import { loadGazeModel, predictGaze } from '../vision/model'
-import { captureGazeFrame } from './gazeCapture'
+import { loadGazeModel } from '../vision/model'
+import {
+  gazeToDirection,
+  runGazeInference,
+  type Direction,
+} from './gazeCapture'
 import { captureCameraSettings } from '../calibration/cameraMetadata'
 import type { CalibrationSession } from '../calibration/record'
-import { approximateCameraIntrinsics } from '../vision/camera'
-import { gazeToDirection, prepareGameplayGaze, type Direction } from './gazeDirection'
+import { prepareGameplayGaze } from './gazeDirection'
 import Maze from './Maze'
 
 interface Props {
@@ -15,6 +18,7 @@ interface Props {
 }
 
 const PREDICTION_INTERVAL = 200
+
 export function MazeScreen({ onBack, calibration }: Props) {
   const camera = useCamera()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -43,9 +47,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
   }, [stream])
 
   useEffect(() => {
-    if (status !== 'ready' || !stream) {
-      return
-    }
+    if (status !== 'ready' || !stream) return
 
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -65,48 +67,38 @@ export function MazeScreen({ onBack, calibration }: Props) {
         async function predict() {
           if (cancelled) return
 
-          const video = videoRef.current
-          const canvas = canvasRef.current
+          try {
+            const video = videoRef.current
+            const canvas = canvasRef.current
 
-          if (video && canvas && video.readyState >= 2) {
-            try {
-              const image = captureGazeFrame(video, canvas)
+            // Snapshot the actual frame dimensions before inference yields.
+            const image = { cols: video?.videoWidth ?? 0, rows: video?.videoHeight ?? 0 }
+            const result =
+              video && canvas
+                ? await runGazeInference(video, canvas, landmarker, model)
+                : null
 
-              if (image) {
-                const intrinsics = approximateCameraIntrinsics(image.cols, image.rows)
+            if (cancelled) return
 
-                const result = await predictGaze(
-                  landmarker,
-                  model,
-                  image,
-                  intrinsics,
-                )
-
-                if (cancelled) return
-
-                if (typeof result === 'string') {
-                  setGazeDirection(null)
-                  setGazeStatus(`Tracking paused: ${result}`)
-                } else {
-                  const prepared = prepareGameplayGaze(result, calibration, captureCameraSettings(stream), image)
-                  setGazeDirection(prepared ? gazeToDirection(prepared.point.x, prepared.point.y) : null)
-                  setGazeStatus(!prepared ? 'Tracking paused: invalid prediction or correction'
-                    : prepared.calibrated ? 'Tracking gaze with your calibration'
-                    : calibration ? 'Tracking gaze without calibration. Verify saved camera or recalibrate.'
-                    : 'Tracking gaze without calibration')
-                }
-              } else {
-                setGazeDirection(null)
-              }
-            } catch (err) {
-              if (cancelled) return
+            if (result === null) {
               setGazeDirection(null)
-              setGazeStatus(
-                err instanceof Error ? err.message : 'Gaze prediction failed',
-              )
+            } else if (typeof result === 'string') {
+              setGazeDirection(null)
+              setGazeStatus(`Tracking paused: ${result}`)
+            } else {
+              const prepared = prepareGameplayGaze(result, calibration, captureCameraSettings(stream), image)
+              setGazeDirection(prepared ? gazeToDirection(prepared.point.x, prepared.point.y) : null)
+              setGazeStatus(!prepared ? 'Tracking paused: invalid prediction or correction'
+                : prepared.calibrated ? 'Tracking gaze with your calibration'
+                : calibration ? 'Tracking gaze without calibration. Verify saved camera or recalibrate.'
+                : 'Tracking gaze without calibration')
             }
-          } else {
+          } catch (err) {
+            if (cancelled) return
             setGazeDirection(null)
+            setGazeStatus(
+              err instanceof Error ? err.message : 'Gaze prediction failed',
+            )
           }
 
           if (!cancelled) {

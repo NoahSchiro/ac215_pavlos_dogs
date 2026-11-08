@@ -68,7 +68,7 @@ src/
     fullscreen.ts     best-effort enter/exit full screen
     Crosshair.tsx     target marker
     ridge.ts         pure centered ridge fit and affine application
-    process.ts       sequential sample inference, coverage checks, fitting
+    process.ts       sequential inference, coverage/variation checks, fitting
     record.ts        versioned calibration metadata and validation
     storage.ts       atomic IndexedDB save, restore, and clear
     cameraMetadata.ts  capture identity and camera compatibility checks
@@ -161,9 +161,13 @@ bottom.
   screen shows inference progress, then saves a ridge correction with
   `lambda = 0.1`. **Calibration ready** appears after the save commits.
 - Failed frames retain their drop reasons. Fitting requires at least one
-  valid frame at each of the nine targets and uses all valid pairs. Missing
-  coverage offers **Retry calibration**. Cancelled or failed processing and
-  failed writes preserve the previous saved calibration.
+  valid frame at each of the nine targets and uses all valid pairs. Predictions
+  must also vary across targets in two independent directions. The workflow
+  averages each target's valid frames and requires a standard deviation of at
+  least `0.01` in normalized coordinates along the least-varying direction.
+  Insufficient coverage or variation offers **Retry calibration** and keeps
+  the previous saved calibration. Cancelled or failed processing and failed
+  writes also preserve it.
 - If the camera is denied or missing, an error screen offers **Retry** and
   **Back**.
 
@@ -205,9 +209,8 @@ verification or recalibration is needed. Missing faces, rejected frames, and
 prediction failures stop gaze movement. Arrow-key controls remain available,
 including when the camera is denied or unavailable.
 
-This branch incorporates the live loop from PR #68 at commit
-`2d1bb40eebf46406f20065425622af092b19c4c5`, selected for integration before
-that PR merges. Its center thresholds (`0.4`/`0.6`), prediction delay
+This branch integrates final PR #68 from `origin/master` at merge commit
+`1cdffb9abf62dae9e4553d5e3bb355848f020800`. Its center thresholds (`0.4`/`0.6`), prediction delay
 (`200 ms` after completion), movement interval (`160 ms`), and collision
 rules are preserved.
 

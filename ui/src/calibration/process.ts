@@ -30,6 +30,32 @@ export type CalibrationProcessingResult =
   | { ok: true; calibration: PersonalCalibration }
   | { ok: false; reason: string; frames: readonly EvaluatedSample[]; missingPointIndices: readonly number[] }
 
+// Workflow quality policy, separate from ridge's valid constant/collinear fits.
+// Require at least 1% screen-coordinate standard deviation in every direction.
+const MIN_TARGET_VARIANCE = 0.01 ** 2
+
+function hasSufficientVariation(frames: readonly EvaluatedSample[], counts: readonly number[]): boolean {
+  // Average each target's burst first so within-burst noise cannot supply variation.
+  const means = CALIBRATION_POINTS.map(() => ({ x: 0, y: 0 }))
+  for (const { sample, result } of frames) {
+    if (!result.ok) continue
+    means[sample.pointIndex].x += result.prediction.x / counts[sample.pointIndex]
+    means[sample.pointIndex].y += result.prediction.y / counts[sample.pointIndex]
+  }
+  const n = means.length
+  const center = means.reduce((sum, point) => ({ x: sum.x + point.x / n, y: sum.y + point.y / n }), { x: 0, y: 0 })
+  let xx = 0, xy = 0, yy = 0
+  for (const point of means) {
+    const dx = point.x - center.x, dy = point.y - center.y
+    xx += dx * dx / n
+    xy += dx * dy / n
+    yy += dy * dy / n
+  }
+  // The smaller covariance eigenvalue catches collapsed axes and diagonal lines.
+  const variance = (xx + yy - Math.hypot(xx - yy, 2 * xy)) / 2
+  return Number.isFinite(variance) && variance >= MIN_TARGET_VARIANCE
+}
+
 export async function processCalibration(
   capture: CalibrationResult,
   options: { signal?: AbortSignal; onProgress?: (progress: CalibrationProgress) => void } = {},
@@ -80,6 +106,9 @@ export async function processCalibration(
     const rejected = frames.map((frame) => frame.result).find((result) => !result.ok)
     const detail = rejected && !rejected.ok ? ` First frame failure: ${rejected.stage}: ${rejected.reason}.` : ''
     return failure(`No valid frame at target(s) ${missing.map((i) => i + 1).join(', ')}. Capture again.${detail}`, missing)
+  }
+  if (!hasSufficientVariation(frames, validFrameCounts)) {
+    return failure('Insufficient prediction variation across targets. Look at each target and capture again.')
   }
   try {
     const fit = fitCalibration(predictions, targets)

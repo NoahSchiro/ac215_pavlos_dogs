@@ -3,6 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import App from '../App'
 import { captureBurst } from './capture'
 import { predictCalibrationImage, type CalibrationImagePrediction } from './inference'
+import { CALIBRATION_POINTS } from './points'
 import { useCamera } from './useCamera'
 import { loadCalibration, saveCalibration } from './storage'
 
@@ -34,7 +35,9 @@ beforeEach(() => {
   vi.mocked(captureBurst).mockImplementation(async () =>
     Array.from({ length: 3 }, () => new Blob(['jpeg'], { type: 'image/jpeg' })),
   )
-  vi.mocked(predictCalibrationImage).mockResolvedValue(success)
+  vi.mocked(predictCalibrationImage).mockImplementation(async () => ({
+    ...success, prediction: CALIBRATION_POINTS[Math.floor((vi.mocked(predictCalibrationImage).mock.calls.length - 1) / 3)],
+  } as CalibrationImagePrediction))
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
 })

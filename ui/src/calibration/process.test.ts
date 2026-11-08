@@ -1,19 +1,22 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 import { predictCalibrationImage, type CalibrationImagePrediction } from './inference'
-import { CALIBRATION_POINTS, type CalibrationResult } from './points'
+import { CALIBRATION_POINTS, type CalibrationResult, type NormalizedPoint } from './points'
 import { processCalibration } from './process'
 
 vi.mock('./inference', () => ({ predictCalibrationImage: vi.fn() }))
 const predict = vi.mocked(predictCalibrationImage)
 
+const targetByImage = new WeakMap<Blob, NormalizedPoint>()
+
 function capture(perPoint = 3): CalibrationResult {
   return {
     completedAt: 123,
     samples: CALIBRATION_POINTS.flatMap((target, pointIndex) =>
-      Array.from({ length: perPoint }, () => ({
-        image: new Blob(['jpeg']), target, pointIndex,
-        viewportWidth: 800, viewportHeight: 600, timestamp: 100,
-      })),
+      Array.from({ length: perPoint }, () => {
+        const image = new Blob(['jpeg'])
+        targetByImage.set(image, target)
+        return { image, target, pointIndex, viewportWidth: 800, viewportHeight: 600, timestamp: 100 }
+      }),
     ),
   }
 }
@@ -27,7 +30,10 @@ function prediction(x = 0.5, y = 0.5): CalibrationImagePrediction {
 
 beforeEach(() => {
   vi.resetAllMocks()
-  predict.mockResolvedValue(prediction())
+  predict.mockImplementation(async (image) => {
+    const target = targetByImage.get(image)!
+    return prediction(target.x, target.y)
+  })
 })
 
 test('fits all valid raw pairs and retains samples, outcomes, counts, and progress', async () => {
@@ -54,6 +60,33 @@ test('fits all valid raw pairs and retains samples, outcomes, counts, and progre
     Array.from({ length: 28 }, (_, i) => i),
   )
   expect(onProgress).toHaveBeenLastCalledWith({ completed: 27, total: 27 })
+})
+
+test.each(['constant', 'tiny', 'horizontal', 'vertical', 'diagonal', 'burst jitter'] as const)(
+  'rejects insufficient two-dimensional target variation: %s', async (kind) => {
+    const captured = capture()
+    captured.samples.forEach(({ target }, i) => {
+      const point = kind === 'tiny' ? { x: 0.5 + target.x * 0.001, y: 0.5 + target.y * 0.001 }
+        : kind === 'horizontal' ? { x: target.x, y: 0.5 }
+        : kind === 'vertical' ? { x: 0.5, y: target.y }
+        : kind === 'diagonal' ? { x: target.x, y: target.x }
+        : kind === 'burst jitter' ? { x: 0.5 + (i % 3 - 1) * 0.2, y: 0.5 + (i % 3 - 1) * 0.1 }
+        : { x: 0.5, y: 0.5 }
+      predict.mockResolvedValueOnce(prediction(point.x, point.y))
+    })
+    const result = await processCalibration(captured)
+    expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/insufficient.*variation.*capture again/i), missingPointIndices: [] })
+    if (result.ok) throw new Error('Expected variation rejection')
+    expect(result.frames).toHaveLength(27)
+    expect(result.frames.every(({ result }) => result.ok)).toBe(true)
+    expect(result).not.toHaveProperty('calibration')
+  },
+)
+
+test('accepts modest independent variation outside the screen bounds without clipping', async () => {
+  const captured = capture()
+  captured.samples.forEach(({ target }) => predict.mockResolvedValueOnce(prediction(-2 + target.x * 0.1, 3 + target.y * 0.1)))
+  expect((await processCalibration(captured)).ok).toBe(true)
 })
 
 test('awaits each prediction before starting the next frame', async () => {
@@ -120,11 +153,11 @@ test('retains unexpected prediction failures with their sample', async () => {
   expect(result.frames[0].result).toEqual({ ok: false, stage: 'inference', reason: 'runtime failed' })
 })
 
-test('does not publish a fit when fitting overflows', async () => {
+test('does not publish a fit when variation arithmetic overflows', async () => {
   predict.mockResolvedValue(prediction(1e308, -1e308))
   predict.mockResolvedValueOnce(prediction(-1e308, 1e308))
   const result = await processCalibration(capture(1))
-  expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/fitting failed.*non-finite/i) })
+  expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/insufficient.*variation/i) })
   expect(result).not.toHaveProperty('calibration')
 })
 
