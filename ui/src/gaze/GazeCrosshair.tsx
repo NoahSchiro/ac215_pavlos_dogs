@@ -1,4 +1,5 @@
 import type { ScreenFraction } from '../vision/model'
+import { CROSSHAIR_GLIDE_MS, CROSSHAIR_OPACITY } from '../config'
 import './gazeCrosshair.css'
 
 interface Props {
@@ -11,7 +12,12 @@ interface Props {
 function toPosition(point: ScreenFraction | null | undefined) {
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null
   const clamp = (v: number) => Math.min(1, Math.max(0, v))
-  return { left: `${clamp(point.x) * 100}%`, top: `${clamp(point.y) * 100}%` }
+  return {
+    left: `${clamp(point.x) * 100}%`,
+    top: `${clamp(point.y) * 100}%`,
+    opacity: CROSSHAIR_OPACITY,
+    transitionDuration: `${CROSSHAIR_GLIDE_MS}ms`,
+  }
 }
 
 /** Overlay marking the model's gaze estimate on screen. */

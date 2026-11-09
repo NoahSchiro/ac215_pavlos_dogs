@@ -1,5 +1,6 @@
 import type { ImageArray } from '../vision/utils'
 import { predictGaze } from '../vision/model'
+import { GAZE_CENTER_MAX, GAZE_CENTER_MIN } from '../config'
 
 /** Convert a webcam video frame into an RGB image for gaze inference. */
 export function captureGazeFrame(
@@ -53,11 +54,8 @@ export function gazeToDirection(x: number, y: number): Direction | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
   if (x < 0 || x > 1 || y < 0 || y > 1) return null
 
-  const CENTER_MIN = 0.4
-  const CENTER_MAX = 0.6
-
-  const dx = x < CENTER_MIN ? x - CENTER_MIN : x > CENTER_MAX ? x - CENTER_MAX : 0
-  const dy = y < CENTER_MIN ? y - CENTER_MIN : y > CENTER_MAX ? y - CENTER_MAX : 0
+  const dx = x < GAZE_CENTER_MIN ? x - GAZE_CENTER_MIN : x > GAZE_CENTER_MAX ? x - GAZE_CENTER_MAX : 0
+  const dy = y < GAZE_CENTER_MIN ? y - GAZE_CENTER_MIN : y > GAZE_CENTER_MAX ? y - GAZE_CENTER_MAX : 0
 
   if (dx === 0 && dy === 0) return null
   if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right'
