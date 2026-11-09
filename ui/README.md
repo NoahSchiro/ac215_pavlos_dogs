@@ -68,6 +68,7 @@ src/
     record.ts        versioned calibration metadata and validation
     storage.ts       atomic IndexedDB save, restore, and clear
     cameraMetadata.ts  capture identity and camera compatibility checks
+    viewport.ts      shared capture/window size checks
   gaze/
     GazeCrosshair.tsx  overlay for the displayed gameplay gaze
     kalman.ts         Kalman smoothing of per-frame gaze predictions
@@ -166,7 +167,7 @@ Clicking **Calibration** on the home screen opens the webcam first, while the
 page is still windowed, so the browser's permission prompt stays visible.
 (Safari attaches the prompt to the toolbar, which full screen hides.) Once the
 camera is ready a **Camera ready** screen appears; clicking **Begin** (or
-pressing Space) enters full screen and shows the first crosshair. Targets sit
+pressing Space) waits for the full-screen request before showing the first crosshair. Targets sit
 on a 3x3 grid, inset 10% from each edge, ordered left to right then top to
 bottom.
 
@@ -190,7 +191,9 @@ the gaze model predicts in. JPEGs, prediction/drop outcomes, frame
 counts, fit parameters, lambda, and model/camera/capture metadata are stored
 locally in IndexedDB. They are never uploaded.
 
-Full screen is best effort: if the browser refuses, calibration runs windowed.
+Full screen is best effort: if the browser refuses, calibration runs windowed
+with a notice to keep its size and position unchanged. Changing size or
+full-screen mode during capture discards the run; go back and restart.
 
 ## Restore, reset, and reuse
 
@@ -206,10 +209,15 @@ Full screen is best effort: if the browser refuses, calibration runs windowed.
 
 ## Gameplay
 
-Open **Maze** to start live prediction. A verified fit corrects each prediction
+Open **Maze** to request full screen before starting live prediction. A verified fit corrects each prediction
 once when the camera and frame dimensions match. Otherwise, gameplay skips the
 personal correction and reports when verification or recalibration is needed.
 Both paths pass through Kalman smoothing before updating the crosshair and movement.
+The saved capture size must match the game window. Resizing or leaving the
+game's full-screen mode pauses gaze movement and hides the crosshair;
+keyboard controls remain available. Restore the original size/mode (use
+**Restore full screen** for a full-screen capture) or recalibrate. Restoring
+the layout restarts smoothing and resumes gaze input. Returning home exits full screen.
 The direction boundary rejects non-finite values and clips corrected coordinates
 to `[0, 1]`. Missing faces and prediction failures stop gaze movement.
 Arrow keys remain available, including when camera access fails. The existing
@@ -223,6 +231,8 @@ collecting three fresh frames with **Space**. It compares raw and corrected
 mean Euclidean error against the same targets using the same valid frames.
 Errors use normalized screen coordinates without clipping; lower is better.
 Every target needs at least one valid frame.
+Validation requires the same captured window size as calibration, even when
+results are calculated after leaving full screen.
 
 The result shows both means and the valid frame count. **Try again** captures
 another check; **Back to Home** cancels processing or closes the result. The

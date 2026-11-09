@@ -2,6 +2,7 @@ import type { PersonalCalibration } from './process'
 import { CALIBRATION_POINTS } from './points'
 import { applyCalibration, fitCalibration } from './ridge'
 import { approximateCameraIntrinsics } from '../vision/camera'
+import { captureViewport } from './viewport'
 
 // Bump these identifiers whenever the pinned assets or preprocessing contract change.
 export const CALIBRATION_COMPATIBILITY = {
@@ -60,6 +61,7 @@ export function validateCalibrationRecord(value: unknown): asserts value is Cali
   'Capture camera identity or dimensions are unavailable. Recalibrate on a supported camera.')
   requireValid(Array.isArray(capture.samples) && capture.samples.length >= 9 && capture.samples.length <= 27,
     'Invalid calibration samples.')
+  requireValid(captureViewport(capture), 'Calibration contains inconsistent viewport sizes. Recalibrate.')
   requireValid(Array.isArray(calibration.frames) && calibration.frames.length === capture.samples.length,
     'Invalid calibration frame outcomes.')
   requireValid(Array.isArray(calibration.validFrameCounts) && calibration.validFrameCounts.length === 9,

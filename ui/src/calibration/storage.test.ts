@@ -49,6 +49,12 @@ test('restores a complete record, including Blobs, fit, lambda, and capture meta
   expect(loaded.record.calibration.frames[0].sample).toBe(loaded.record.calibration.capture.samples[0])
 })
 
+test('rejects a record captured across different viewport sizes', async () => {
+  const record = testSession().record
+  Object.assign(record.calibration.capture.samples[0], { viewportWidth: 900 })
+  await expect(saveCalibration(record)).rejects.toThrow(/window|viewport/i)
+})
+
 test('replaces one complete record and clear removes it', async () => {
   const first = testSession().record
   await saveCalibration(first)

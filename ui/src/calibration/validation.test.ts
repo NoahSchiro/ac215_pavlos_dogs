@@ -29,6 +29,14 @@ test('compares the same fresh frames with the fixed fit and leaves the saved ses
   expect(JSON.stringify(session)).toBe(before)
 })
 
+test('rejects validation in a different viewport before inference', async () => {
+  const images = capture()
+  predict.mockResolvedValue(result(0.5, 0.5))
+  images.samples.forEach((sample) => Object.assign(sample, { viewportWidth: 1200 }))
+  await expect(validateCalibrationCapture(images, testSession())).rejects.toThrow(/window|viewport/i)
+  expect(predict).not.toHaveBeenCalled()
+})
+
 test('excludes a rejected frame from both means and requires every target', async () => {
   const images = capture()
   images.samples.forEach(({ target }, i) => predict.mockResolvedValueOnce(i === 0

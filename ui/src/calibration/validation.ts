@@ -3,6 +3,7 @@ import type { CalibrationSession } from './record'
 import { calibrationMatchesFrame } from './cameraMetadata'
 import { predictCalibrationImage } from './inference'
 import { applyCalibration } from './ridge'
+import { captureViewport, sameViewport } from './viewport'
 
 export interface ValidationSummary {
   rawMeanError: number
@@ -22,6 +23,9 @@ export async function validateCalibrationCapture(
     throw new Error('Verify the matching camera or recalibrate before checking accuracy.')
   }
   const training = session.record.calibration.capture
+  if (!sameViewport(captureViewport(training), captureViewport(capture))) {
+    throw new Error('Validation window size does not match calibration. Restore the original window size or recalibrate.')
+  }
   if (capture.samples.length !== VALIDATION_POINTS.length * FRAMES_PER_POINT ||
       !Number.isFinite(capture.completedAt) || capture.completedAt <= training.completedAt) {
     throw new Error('Capture 12 fresh frames at the four validation targets.')

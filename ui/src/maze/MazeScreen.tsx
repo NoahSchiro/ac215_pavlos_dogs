@@ -13,6 +13,8 @@ import type { CalibrationSession } from '../calibration/record'
 import { prepareGameplayGaze } from './gazeDirection'
 import Maze from './Maze'
 import { GazeKalmanFilter } from '../gaze/kalman'
+import { enterFullscreen } from '../calibration/fullscreen'
+import { captureViewport, currentViewport, sameViewport } from '../calibration/viewport'
 
 interface Props {
   onBack: () => void
@@ -20,6 +22,7 @@ interface Props {
 }
 
 const PREDICTION_INTERVAL = 200
+const currentLayout = () => ({ ...currentViewport(), fullscreen: !!document.fullscreenElement })
 
 export function MazeScreen({ onBack, calibration }: Props) {
   const camera = useCamera()
@@ -29,8 +32,30 @@ export function MazeScreen({ onBack, calibration }: Props) {
   const [gazeDirection, setGazeDirection] = useState<Direction | null>(null)
   const [gazeStatus, setGazeStatus] = useState('Starting camera...')
   const [gazePoint, setGazePoint] = useState<ScreenFraction | null>(null)
+  const [layout, setLayout] = useState(currentLayout)
+  const initialLayout = useRef(layout)
+  const expectedViewport = calibration?.cameraVerification === 'verified'
+    ? captureViewport(calibration.record.calibration.capture) : initialLayout.current
+  const fullscreenMode = useRef<boolean | null>(sameViewport(expectedViewport, layout) ? layout.fullscreen : null)
+  const layoutMatches = sameViewport(expectedViewport, layout) &&
+    (fullscreenMode.current === null || layout.fullscreen === fullscreenMode.current)
 
   const { start, status, stream, error } = camera
+
+  useEffect(() => {
+    const update = () => {
+      const next = currentLayout()
+      // Bind the mode only after reaching the saved size; a failed entry may recover later.
+      if (fullscreenMode.current === null && sameViewport(expectedViewport, next)) fullscreenMode.current = next.fullscreen
+      setLayout(next)
+    }
+    window.addEventListener('resize', update)
+    document.addEventListener('fullscreenchange', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      document.removeEventListener('fullscreenchange', update)
+    }
+  }, [calibration])
 
   useEffect(() => {
     void start()
@@ -50,6 +75,10 @@ export function MazeScreen({ onBack, calibration }: Props) {
   }, [stream])
 
   useEffect(() => {
+    if (!layoutMatches) {
+      setGazeStatus('Tracking paused: window size or full screen changed. Restore the calibration window size or recalibrate. Keyboard controls still work.')
+      return
+    }
     if (status !== 'ready' || !stream) return
 
     let cancelled = false
@@ -139,7 +168,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
       setGazeDirection(null)
       setGazePoint(null)
     }
-  }, [status, stream, calibration])
+  }, [status, stream, calibration, layout, layoutMatches])
 
   return (
     <main className="maze-screen">
@@ -162,6 +191,9 @@ export function MazeScreen({ onBack, calibration }: Props) {
           ? error
           : gazeStatus}
       </p>
+
+      {!layout.fullscreen && <p>Full screen is inactive or unavailable. Keep the window size and position unchanged.</p>}
+      {!layoutMatches && <button type="button" className="back-button" onClick={() => { void enterFullscreen() }}>Restore full screen</button>}
 
       <button
         type="button"

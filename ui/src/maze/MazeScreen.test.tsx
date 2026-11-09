@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { MazeScreen } from './MazeScreen'
 import { useCamera } from '../calibration/useCamera'
@@ -16,6 +16,10 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
   vi.resetAllMocks()
+  vi.stubGlobal('innerWidth', 800)
+  vi.stubGlobal('innerHeight', 600)
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  document.documentElement.requestFullscreen = vi.fn().mockResolvedValue(undefined)
   vi.mocked(useCamera).mockReturnValue({
     start: vi.fn().mockResolvedValue(undefined), stop: vi.fn(), status: 'ready', error: null,
     stream: { getVideoTracks: () => [{ label: 'Camera A', getSettings: () => TEST_CAMERA }] } as unknown as MediaStream,
@@ -32,7 +36,48 @@ beforeEach(() => {
     drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(640 * 480 * 4) }),
   } as unknown as CanvasRenderingContext2D)
 })
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+test('pauses immediately on resize and resumes when the calibration viewport is restored', async () => {
+  await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
+  vi.stubGlobal('innerWidth', 1200)
+  fireEvent(window, new Event('resize'))
+  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
+  expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent(/window|viewport/i)
+  vi.stubGlobal('innerWidth', 800)
+  await act(async () => { fireEvent(window, new Event('resize')) })
+  expect(screen.getByTestId('direction')).toHaveTextContent('right')
+})
+
+test('does not use a saved fit when the starting viewport differs', async () => {
+  vi.stubGlobal('innerWidth', 1200)
+  await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
+  expect(predictGaze).not.toHaveBeenCalled()
+  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
+  expect(screen.getByRole('button', { name: 'Restore full screen' })).toBeInTheDocument()
+})
+
+test('recovers from a failed fullscreen entry, then pauses on exit even at the same size', async () => {
+  let full = false
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true,
+    get: () => full ? document.documentElement : null })
+  const request = vi.fn().mockImplementation(async () => {
+    full = true
+    vi.stubGlobal('innerWidth', 800)
+    document.dispatchEvent(new Event('fullscreenchange'))
+  })
+  document.documentElement.requestFullscreen = request
+  vi.stubGlobal('innerWidth', 1200)
+  await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Restore full screen' })))
+  expect(request).toHaveBeenCalledOnce()
+  expect(screen.getByTestId('direction')).toHaveTextContent('right')
+  full = false
+  fireEvent(document, new Event('fullscreenchange'))
+  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
+  expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()
+})
 
 test('feeds a matching personal correction to maze movement', async () => {
   await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
@@ -81,11 +126,15 @@ test('restarts smoothing when the active calibration changes', async () => {
   expect(screen.getByTestId('direction')).toHaveTextContent('left')
 })
 
-test('ignores an in-flight prediction after leaving the maze', async () => {
+test.each(['leave', 'resize'] as const)('ignores an in-flight prediction after %s', async (action) => {
   let finish!: (point: { x: number; y: number }) => void
   vi.mocked(predictGaze).mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
   const { unmount } = await act(async () => render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />))
-  unmount()
+  if (action === 'leave') unmount()
+  else {
+    vi.stubGlobal('innerWidth', 1200)
+    fireEvent(window, new Event('resize'))
+  }
   await act(async () => { finish({ x: 0.2, y: 0.5 }); await vi.advanceTimersByTimeAsync(200) })
   expect(predictGaze).toHaveBeenCalledTimes(1)
   expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()

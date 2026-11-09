@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Calibration } from './calibration/Calibration'
 import { AccuracyCheck } from './calibration/AccuracyCheck'
-import { exitFullscreen } from './calibration/fullscreen'
+import { enterFullscreen, exitFullscreen } from './calibration/fullscreen'
 import type { CalibrationResult } from './calibration/points'
 import { processCalibration, type CalibrationTaskState } from './calibration/process'
 import { createCalibrationRecord, type CalibrationRecord, type CalibrationSession } from './calibration/record'
@@ -53,7 +53,7 @@ function App() {
     return () => { controller.abort(); invalidateTask() }
   }, [invalidateTask])
 
-  const goHome = useCallback(() => setView('home'), [])
+  const goHome = useCallback(() => { void exitFullscreen(); setView('home') }, [])
 
   // Calibration handles full screen after camera permission.
   const startCalibration = useCallback(() => {
@@ -120,8 +120,10 @@ function App() {
     setCalibrationTask({ status: 'cancelled' })
   }, [invalidateTask])
 
-  const startMaze = useCallback(() => {
-    invalidateTask()
+  const startMaze = useCallback(async () => {
+    const taskId = invalidateTask()
+    await enterFullscreen()
+    if (taskId !== taskIdRef.current) return
     setCalibrationTask({ status: 'idle' })
     setView('maze')
   }, [invalidateTask])
@@ -194,7 +196,7 @@ function App() {
           onCancelProcessing={cancelProcessing}
           onClearCalibration={() => { void clearSavedCalibration() }}
           onVerifyCamera={() => { void verifySavedCamera() }}
-          onStartMaze={startMaze}
+          onStartMaze={() => { void startMaze() }}
           onStartCalibration={startCalibration}
           theme={theme}
           onToggleTheme={() =>

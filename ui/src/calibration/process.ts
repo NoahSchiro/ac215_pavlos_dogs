@@ -1,6 +1,7 @@
 import { predictCalibrationImage, type CalibrationImagePrediction } from './inference'
 import { CALIBRATION_POINTS, type CalibrationResult, type CalibrationSample, type NormalizedPoint } from './points'
 import { fitCalibration, type CalibrationFit } from './ridge'
+import { captureViewport } from './viewport'
 
 export interface EvaluatedSample {
   readonly sample: CalibrationSample
@@ -68,6 +69,7 @@ export async function processCalibration(
   if (capture.samples.length === 0) {
     return failure('No captured frames. Capture all nine targets again.', CALIBRATION_POINTS.map((_, i) => i))
   }
+  if (!captureViewport(capture)) return failure('Window size changed during capture. Capture all nine targets again.')
   const invalidIndex = capture.samples.findIndex((sample) => {
     const target = CALIBRATION_POINTS[sample.pointIndex]
     return !Number.isInteger(sample.pointIndex) || !target || !sample.target ||

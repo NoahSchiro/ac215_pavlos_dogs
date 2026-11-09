@@ -62,6 +62,13 @@ test('fits all valid raw pairs and retains samples, outcomes, counts, and progre
   expect(onProgress).toHaveBeenLastCalledWith({ completed: 27, total: 27 })
 })
 
+test('rejects mixed viewport sizes before inference', async () => {
+  const captured = capture()
+  Object.assign(captured.samples[0], { viewportWidth: 900 })
+  expect(await processCalibration(captured)).toMatchObject({ ok: false, reason: expect.stringMatching(/window|viewport/i) })
+  expect(predict).not.toHaveBeenCalled()
+})
+
 test.each(['constant', 'tiny', 'horizontal', 'vertical', 'diagonal', 'burst jitter'] as const)(
   'rejects insufficient two-dimensional target variation: %s', async (kind) => {
     const captured = capture()

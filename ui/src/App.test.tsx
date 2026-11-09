@@ -92,6 +92,28 @@ function validationCapture(): CalibrationResult {
 }
 
 describe('App', () => {
+  it('waits for the fullscreen request before opening the maze', async () => {
+    let finish!: () => void
+    requestFullscreen.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve }))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    expect(requestFullscreen).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('group', { name: 'Maze' })).not.toBeInTheDocument()
+    await act(async () => finish())
+    expect(screen.getByRole('group', { name: 'Maze' })).toBeInTheDocument()
+  })
+
+  it('ignores a delayed maze entry after the user starts calibration instead', async () => {
+    let finish!: () => void
+    requestFullscreen.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve }))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Calibration/ }))
+    await act(async () => finish())
+    expect(screen.getByTestId('calibration-screen')).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Maze' })).not.toBeInTheDocument()
+  })
+
   it('opens a simple four-point check and displays paired errors without saving another fit', async () => {
     vi.mocked(loadCalibration).mockResolvedValueOnce({ status: 'restored', record: testSession().record })
     render(<App />)
@@ -134,9 +156,9 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /^Calibration/ })).toBeInTheDocument()
   })
 
-  it('opens the maze and returns home', () => {
+  it('opens the maze and returns home', async () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Maze/ })) })
     expect(screen.getByRole('group', { name: 'Maze' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Back to Home/i }))
