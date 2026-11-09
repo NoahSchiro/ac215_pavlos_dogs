@@ -1,16 +1,5 @@
-# Services:
-#
-#     docker compose up              serve the web UI
-#     docker compose run --rm train  build the cache and train
-#
-# `train` is a job that runs to completion; `ui` is a long-lived server, and
-# the UI consumes nothing training produces. The profile keeps training
-# opt-in so `up` does not retrain whenever someone wants the app. `compose
-# run` enables the profile itself, so the training command needs no flag.
-
 services:
   train:
-    profiles: ["train"]
     build:
       context: ./model
     image: gaze-model:dev
@@ -29,8 +18,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
 
-    # No `command`: train.py's own defaults apply, so they are defined in one
-    # place. Override per run: `docker compose run --rm train --epochs 1`
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        if [ ! -e /data/MPIIFaceGaze ]; then
+          echo "Unpacking /data/MPIIFaceGaze.tar.gz -> /data ..."
+          tar -xzf /data/MPIIFaceGaze.tar.gz -C /data
+        fi
+        exec uv run train.py
 
   ui:
     build:
