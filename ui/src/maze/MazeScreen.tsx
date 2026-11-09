@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useCamera } from '../calibration/useCamera'
 import { getLandmarker } from '../vision/utils'
-import { loadGazeModel } from '../vision/model'
+import { loadGazeModel, type ScreenFraction } from '../vision/model'
+import { GazeCrosshair } from '../gaze/GazeCrosshair'
 import {
   gazeToDirection,
   runGazeInference,
@@ -11,6 +12,7 @@ import { captureCameraSettings } from '../calibration/cameraMetadata'
 import type { CalibrationSession } from '../calibration/record'
 import { prepareGameplayGaze } from './gazeDirection'
 import Maze from './Maze'
+import { GazeKalmanFilter } from '../gaze/kalman'
 
 interface Props {
   onBack: () => void
@@ -26,6 +28,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
 
   const [gazeDirection, setGazeDirection] = useState<Direction | null>(null)
   const [gazeStatus, setGazeStatus] = useState('Starting camera...')
+  const [gazePoint, setGazePoint] = useState<ScreenFraction | null>(null)
 
   const { start, status, stream, error } = camera
 
@@ -62,6 +65,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
         ])
 
         if (cancelled) return
+        const kf = new GazeKalmanFilter()
         setGazeStatus('Tracking gaze')
 
         async function predict() {
@@ -80,14 +84,24 @@ export function MazeScreen({ onBack, calibration }: Props) {
 
             if (cancelled) return
 
+            const now = performance.now()
+
             if (result === null) {
+              kf.update(null, now)
               setGazeDirection(null)
+              setGazePoint(null)
             } else if (typeof result === 'string') {
+              kf.update(null, now)
               setGazeDirection(null)
+              setGazePoint(null)
               setGazeStatus(`Tracking paused: ${result}`)
             } else {
               const prepared = prepareGameplayGaze(result, calibration, captureCameraSettings(stream), image)
-              setGazeDirection(prepared ? gazeToDirection(prepared.point.x, prepared.point.y) : null)
+              const smoothed = kf.update(prepared?.point ?? null, now)
+              // Advance the filter on invalid frames, but do not move or draw stale estimates.
+              const gaze = prepared ? smoothed : null
+              setGazePoint(gaze)
+              setGazeDirection(gaze ? gazeToDirection(gaze.x, gaze.y) : null)
               setGazeStatus(!prepared ? 'Tracking paused: invalid prediction or correction'
                 : prepared.calibrated ? 'Tracking gaze with your calibration'
                 : calibration ? 'Tracking gaze without calibration. Verify saved camera or recalibrate.'
@@ -96,6 +110,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
           } catch (err) {
             if (cancelled) return
             setGazeDirection(null)
+            setGazePoint(null)
             setGazeStatus(
               err instanceof Error ? err.message : 'Gaze prediction failed',
             )
@@ -122,6 +137,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
       cancelled = true
       clearTimeout(timer)
       setGazeDirection(null)
+      setGazePoint(null)
     }
   }, [status, stream, calibration])
 
@@ -138,6 +154,8 @@ export function MazeScreen({ onBack, calibration }: Props) {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       <Maze gazeDirection={gazeDirection} />
+
+      <GazeCrosshair gaze={gazePoint} />
 
       <p role="status" aria-live="polite">
         {status === 'denied' || status === 'unavailable'

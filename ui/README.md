@@ -68,6 +68,9 @@ src/
     record.ts        versioned calibration metadata and validation
     storage.ts       atomic IndexedDB save, restore, and clear
     cameraMetadata.ts  capture identity and camera compatibility checks
+  gaze/
+    GazeCrosshair.tsx  overlay for the displayed gameplay gaze
+    kalman.ts         Kalman smoothing of per-frame gaze predictions
   vision/             the model's image preprocessing, ported to the browser
     cv.ts             thin wrappers over @techstark/opencv-js (see below)
     utils.ts          port of model/src/data/utils.py, steps 2-5 + tensors
@@ -136,6 +139,27 @@ When replacing weights, update `CALIBRATION_COMPATIBILITY.modelId` in
 `src/calibration/record.ts`. Update the preprocessing or intrinsics version
 when those contracts change, so old fits are rejected.
 
+## Gaze smoothing
+
+`src/gaze/kalman.ts` smooths the per-frame `predictGaze` output with a
+constant-velocity Kalman filter (independent x/y axes, variable frame timing).
+Feed it every frame, passing `null` when `predictGaze` returns a `DropReason`:
+
+```ts
+const kf = new GazeKalmanFilter()
+const raw = await predictGaze(landmarker, model, image, intrinsics)
+const gaze = kf.update(typeof raw === 'string' ? null : raw, performance.now())
+```
+
+A single far-off prediction is gated out as an outlier; two in a row are
+treated as a saccade and the filter jumps to the new point. Tune
+`measurementStd` (R) and `accelerationStd` (Q): higher R or lower Q gives
+smoother but slower output.
+
+Gameplay applies a matching personal ridge correction before Kalman smoothing.
+The crosshair and movement use the same smoothed point. Calibration fitting and
+the four-point accuracy check continue to use raw model predictions.
+
 ## Calibration
 
 Clicking **Calibration** on the home screen opens the webcam first, while the
@@ -183,8 +207,9 @@ Full screen is best effort: if the browser refuses, calibration runs windowed.
 ## Gameplay
 
 Open **Maze** to start live prediction. A verified fit corrects each prediction
-once when the camera and frame dimensions match. Otherwise, gameplay uses raw
-predictions and reports when verification or recalibration is needed.
+once when the camera and frame dimensions match. Otherwise, gameplay skips the
+personal correction and reports when verification or recalibration is needed.
+Both paths pass through Kalman smoothing before updating the crosshair and movement.
 The direction boundary rejects non-finite values and clips corrected coordinates
 to `[0, 1]`. Missing faces and prediction failures stop gaze movement.
 Arrow keys remain available, including when camera access fails. The existing
