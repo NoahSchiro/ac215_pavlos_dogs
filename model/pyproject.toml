@@ -10,6 +10,7 @@ requires-python = ">=3.14"
 dependencies = [
     "mediapipe>=1.0.1",
     "numpy>=2.5.3",
+    "onnxscript>=0.7.2",
     "opencv-python-headless>=5.0.0.93",
     "scipy>=1.18.1",
     "torch>=2.14.1",
@@ -22,6 +23,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=2.3.1",
+    "onnx>=1.23.2",
+    "onnxruntime>=1.31.1",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.7",
@@ -50,6 +53,11 @@ ignore_missing_imports = true
 # webdataset ships .pyi stubs but no py.typed marker, so mypy skips them
 [[tool.mypy.overrides]]
 module = "webdataset.*"
+ignore_missing_imports = true
+
+# onnxruntime ships no py.typed marker
+[[tool.mypy.overrides]]
+module = "onnxruntime.*"
 ignore_missing_imports = true
 
 # torchvision ships no py.typed marker
