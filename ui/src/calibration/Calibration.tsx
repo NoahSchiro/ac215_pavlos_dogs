@@ -5,11 +5,11 @@ import { Crosshair } from './Crosshair'
 import { enterFullscreen } from './fullscreen'
 import {
   CALIBRATION_POINTS,
+  VALIDATION_POINTS,
   FRAMES_PER_POINT,
   FRAME_INTERVAL_MS,
   type CalibrationResult,
   type CalibrationSample,
-  type NormalizedPoint,
 } from './points'
 import { useCamera } from './useCamera'
 import './calibration.css'
@@ -17,8 +17,7 @@ import './calibration.css'
 interface Props {
   onComplete: (result: CalibrationResult) => void
   onCancel: () => void
-  targets?: readonly NormalizedPoint[]
-  purpose?: 'calibration' | 'validation'
+  mode?: 'calibration' | 'validation'
 }
 
 /**
@@ -30,7 +29,7 @@ interface Props {
  * and shows the first crosshair. Space captures a burst of frames labeled
  * with the current target, Escape cancels.
  */
-export function Calibration({ onComplete, onCancel, targets = CALIBRATION_POINTS, purpose = 'calibration' }: Props) {
+export function Calibration({ onComplete, onCancel, mode = 'calibration' }: Props) {
   const camera = useCamera()
   const videoRef = useRef<HTMLVideoElement>(null)
   const samplesRef = useRef<CalibrationSample[]>([])
@@ -44,6 +43,7 @@ export function Calibration({ onComplete, onCancel, targets = CALIBRATION_POINTS
   const [captureError, setCaptureError] = useState<string | null>(null)
 
   const { start, stop, status, stream } = camera
+  const targets = mode === 'validation' ? VALIDATION_POINTS : CALIBRATION_POINTS
   const total = targets.length
   const point = targets[pointIndex]
 
@@ -150,7 +150,7 @@ export function Calibration({ onComplete, onCancel, targets = CALIBRATION_POINTS
   const cameraFailed = status === 'denied' || status === 'unavailable'
 
   return (
-    <div className="calibration" role="application" aria-label={purpose === 'validation' ? 'Gaze validation' : 'Gaze calibration'}>
+    <div className="calibration" role="application" aria-label={mode === 'validation' ? 'Gaze validation' : 'Gaze calibration'}>
       <video ref={videoRef} autoPlay playsInline muted />
 
       {cameraFailed && (
@@ -180,7 +180,7 @@ export function Calibration({ onComplete, onCancel, targets = CALIBRATION_POINTS
             You will see {total} targets, one at a time. Look at each one and press Space.
             The page will go full screen.
           </p>
-          {purpose === 'validation' && <p>These fresh frames measure accuracy. They will not change your saved calibration.</p>}
+          {mode === 'validation' && <p>These new frames only check accuracy. They do not change your calibration.</p>}
           <button type="button" onClick={begin} autoFocus>
             Begin
           </button>

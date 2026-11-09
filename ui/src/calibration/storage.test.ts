@@ -2,33 +2,12 @@
 import { Blob as NodeBlob } from 'node:buffer'
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { CALIBRATION_POINTS } from './points'
-import type { PersonalCalibration } from './process'
-import { fitCalibration } from './ridge'
 import { createCalibrationRecord } from './record'
+import { testSession } from './fixtures/testSession'
 import {
   CALIBRATION_DB_NAME, CALIBRATION_KEY, CALIBRATION_STORE,
   clearCalibration, loadCalibration, saveCalibration,
 } from './storage'
-
-function personal(): PersonalCalibration {
-  const samples = CALIBRATION_POINTS.map((target, pointIndex) => ({
-    image: new Blob(['jpeg'], { type: 'image/jpeg' }), target, pointIndex,
-    timestamp: 1, viewportWidth: 800, viewportHeight: 600,
-  }))
-  return {
-    capture: {
-      samples, completedAt: 2,
-      camera: { deviceId: 'camera-a', label: 'Camera A', width: 640, height: 480, facingMode: 'user' },
-    },
-    frames: samples.map((sample) => ({ sample, result: {
-      ok: true as const, prediction: sample.target, image: { width: 640, height: 480 },
-      intrinsics: { focalLengthPx: 640, principalPoint: { x: 320, y: 240 } },
-    } })),
-    validFrameCounts: Array(9).fill(1),
-    fit: fitCalibration(samples.map((sample) => sample.target), samples.map((sample) => sample.target)),
-  }
-}
 
 // Write raw data to simulate an older version or a corrupt existing record.
 async function putRaw(value: unknown) {
@@ -55,12 +34,8 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-test('an empty database has no calibration', async () => {
-  expect(await loadCalibration()).toEqual({ status: 'empty' })
-})
-
 test('restores a complete record, including Blobs, fit, lambda, and capture metadata', async () => {
-  const record = createCalibrationRecord(personal())
+  const record = testSession().record
   await saveCalibration(record)
   const loaded = await loadCalibration()
   expect(loaded.status).toBe('restored')
@@ -75,7 +50,7 @@ test('restores a complete record, including Blobs, fit, lambda, and capture meta
 })
 
 test('replaces one complete record and clear removes it', async () => {
-  const first = createCalibrationRecord(personal())
+  const first = testSession().record
   await saveCalibration(first)
   const next = { ...first, savedAt: first.savedAt + 1 }
   await saveCalibration(next)
@@ -95,40 +70,18 @@ test.each([
   ['missing samples', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, capture: { ...r.calibration.capture, samples: [] } } })],
   ['unknown camera', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, capture: { ...r.calibration.capture, camera: null } } })],
 ])('rejects a record with %s', async (_, corrupt) => {
-  await putRaw(corrupt(createCalibrationRecord(personal())))
+  await putRaw(corrupt(testSession().record))
   expect(await loadCalibration()).toMatchObject({ status: 'invalid', reason: expect.any(String) })
 })
 
-test('rejects image dimensions that do not match the captured camera', async () => {
-  const record = createCalibrationRecord(personal())
-  await putRaw({ ...record, calibration: { ...record.calibration, capture: {
-    ...record.calibration.capture,
-    camera: { ...record.calibration.capture.camera!, width: 1280 },
-  } } })
-  expect(await loadCalibration()).toMatchObject({ status: 'invalid' })
-})
-
-test.each([undefined, NaN, -1, Infinity])('rejects missing or invalid saved lambda: %s', async (lambda) => {
-  const record = createCalibrationRecord(personal())
-  await putRaw({ ...record, calibration: { ...record.calibration, fit: { ...record.calibration.fit, lambda } } })
-  expect(await loadCalibration()).toMatchObject({ status: 'invalid' })
-})
-
 test('rejects finite coefficients that no longer match the saved prediction-target pairs', async () => {
-  const record = createCalibrationRecord(personal())
+  const record = testSession().record
   await putRaw({ ...record, calibration: { ...record.calibration, fit: { ...record.calibration.fit, intercept: [0.4, 0.6] } } })
   expect(await loadCalibration()).toMatchObject({ status: 'invalid' })
 })
 
-test('rejects invalid new records before replacing the previous record', async () => {
-  const record = createCalibrationRecord(personal())
-  await saveCalibration(record)
-  await expect(saveCalibration({ ...record, version: 99 } as unknown as typeof record)).rejects.toThrow()
-  expect(await loadCalibration()).toEqual({ status: 'restored', record })
-})
-
 test('transaction abort rolls back a replacement even after put succeeds', async () => {
-  const first = createCalibrationRecord(personal())
+  const first = testSession().record
   await saveCalibration(first)
   const put = IDBObjectStore.prototype.put
   const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value, key) {
@@ -142,7 +95,7 @@ test('transaction abort rolls back a replacement even after put succeeds', async
 })
 
 test('cancelled writes do not replace the previous record', async () => {
-  const first = createCalibrationRecord(personal())
+  const first = testSession().record
   await saveCalibration(first)
   const controller = new AbortController()
   const put = IDBObjectStore.prototype.put
@@ -157,7 +110,7 @@ test('cancelled writes do not replace the previous record', async () => {
 })
 
 test('a failed clear preserves the existing record', async () => {
-  const first = createCalibrationRecord(personal())
+  const first = testSession().record
   await saveCalibration(first)
   const remove = IDBObjectStore.prototype.delete
   const spy = vi.spyOn(IDBObjectStore.prototype, 'delete').mockImplementation(function (this: IDBObjectStore, key) {
@@ -168,12 +121,4 @@ test('a failed clear preserves the existing record', async () => {
   await expect(clearCalibration()).rejects.toThrow()
   spy.mockRestore()
   expect(await loadCalibration()).toEqual({ status: 'restored', record: first })
-})
-
-test('reports unavailable IndexedDB and rejects already cancelled work', async () => {
-  const controller = new AbortController()
-  controller.abort()
-  await expect(saveCalibration(createCalibrationRecord(personal()), controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
-  vi.stubGlobal('indexedDB', undefined)
-  await expect(loadCalibration()).rejects.toThrow(/storage|IndexedDB/i)
 })

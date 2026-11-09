@@ -21,7 +21,7 @@ export interface CalibrationSample {
   readonly image: Blob
   /** Target the user was asked to look at. */
   readonly target: NormalizedPoint
-  /** Index of the target in CALIBRATION_POINTS. */
+  /** Index of the target in the active capture grid. */
   readonly pointIndex: number
   /** Viewport size in CSS pixels when the frame was captured. */
   readonly viewportWidth: number
@@ -51,6 +51,12 @@ const GRID_COORDS = [EDGE_INSET, 0.5, 1 - EDGE_INSET] as const
 export const CALIBRATION_POINTS: readonly NormalizedPoint[] = GRID_COORDS.flatMap(
   (y) => GRID_COORDS.map((x) => ({ x, y })),
 )
+
+/** Independent targets: validation frames must never be used for fitting. */
+export const VALIDATION_POINTS: readonly NormalizedPoint[] = [
+  { x: 0.25, y: 0.25 }, { x: 0.75, y: 0.25 },
+  { x: 0.25, y: 0.75 }, { x: 0.75, y: 0.75 },
+]
 
 /** Frames captured per target on each Space press. */
 export const FRAMES_PER_POINT = 3

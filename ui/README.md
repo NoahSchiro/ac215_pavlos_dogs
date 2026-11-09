@@ -34,15 +34,9 @@ This runs TypeScript checks and creates the production bundle in `dist/`.
 npm run test
 ```
 
-For the CI-compatible component, algorithm, workflow, and storage tests:
-
-```bash
-npm test -- --project app
-```
-
-`npm test` runs both the app and real-browser vision projects. The vision
-project requires a desktop browser, runtime downloads, and the actual ONNX
-weights.
+Use `npm test -- --project app` for CI-compatible tests. The full suite also
+runs vision tests, which require a desktop browser, runtime downloads, and
+the actual ONNX weights.
 
 ## Lint
 
@@ -57,14 +51,16 @@ are the supported browsers.
 
 ```
 src/
-  App.tsx             home, maze, calibration, and independent validation
+  App.tsx             home, maze, and personal calibration
   home/               HomeScreen: choose maze or calibration
   maze/               live gaze loop, corrected direction mapping, maze controls
   calibration/
-    points.ts         the 9 targets, sample types, burst constants
+    points.ts         calibration/validation targets, sample types, burst constants
     capture.ts        video frame -> JPEG blob, burst capture
     useCamera.ts      owns the webcam MediaStream
     Calibration.tsx   the calibration screen
+    AccuracyCheck.tsx  temporary four-point accuracy check
+    validation.ts     paired raw/corrected mean error on fresh frames
     fullscreen.ts     best-effort enter/exit full screen
     Crosshair.tsx     target marker
     ridge.ts         pure centered ridge fit and affine application
@@ -72,7 +68,6 @@ src/
     record.ts        versioned calibration metadata and validation
     storage.ts       atomic IndexedDB save, restore, and clear
     cameraMetadata.ts  capture identity and camera compatibility checks
-    validation.ts    held-out capture protocol and paired error measurement
   vision/             the model's image preprocessing, ported to the browser
     cv.ts             thin wrappers over @techstark/opencv-js (see below)
     utils.ts          port of model/src/data/utils.py, steps 2-5 + tensors
@@ -135,14 +130,11 @@ The public API mirrors the preprocessing pipeline:
 Predictions are sigmoid-activated fractions of the screen — the same label
 space `transformLabel` records calibration targets in.
 
-The committed ONNX file uses Git LFS. It must contain the actual weights,
-not the small text pointer. On a checkout with Git LFS installed, restore it
-with `git lfs pull --include="ui/public/models/gazenet.onnx" --exclude=""`.
-The current file is 46,084,415 bytes with SHA-256
-`c4a11ab96dc64766cd1abd622838b50b297aaec4adf4f25ebf71cf0b66bcbee6`.
-If replacing the model, update `CALIBRATION_COMPATIBILITY.modelId` in
-`src/calibration/record.ts` to identify the new weights. Bump the preprocessing
-or intrinsics version when those contracts change, so old fits are rejected.
+Restore the actual ONNX weights with Git LFS:
+`git lfs pull --include="ui/public/models/gazenet.onnx" --exclude=""`.
+When replacing weights, update `CALIBRATION_COMPATIBILITY.modelId` in
+`src/calibration/record.ts`. Update the preprocessing or intrinsics version
+when those contracts change, so old fits are rejected.
 
 ## Calibration
 
@@ -157,17 +149,13 @@ bottom.
 - **Space** captures a burst of 3 frames 100 ms apart, labels each with the
   current target, and advances to the next crosshair.
 - **Escape** cancels and returns home.
-- After the 9th target the camera stops and full screen exits. The home
-  screen shows inference progress, then saves a ridge correction with
-  `lambda = 0.1`. **Calibration ready** appears after the save commits.
-- Failed frames retain their drop reasons. Fitting requires at least one
-  valid frame at each of the nine targets and uses all valid pairs. Predictions
-  must also vary across targets in two independent directions. The workflow
-  averages each target's valid frames and requires a standard deviation of at
-  least `0.01` in normalized coordinates along the least-varying direction.
-  Insufficient coverage or variation offers **Retry calibration** and keeps
-  the previous saved calibration. Cancelled or failed processing and failed
-  writes also preserve it.
+- After the 9th target, capture stops and the home screen shows inference
+  progress. **Calibration ready** appears after saving the ridge fit
+  (`lambda = 0.1`). All valid pairs are fitted; every target needs a valid frame.
+- Target-average predictions must have a standard deviation of at least
+  `0.01` along the least-varying direction. Failed frames retain their reasons.
+  Missing coverage or variation offers **Retry calibration**. Failed or
+  cancelled processing and failed writes preserve the previous calibration.
 - If the camera is denied or missing, an error screen offers **Retry** and
   **Back**.
 
@@ -182,65 +170,39 @@ Full screen is best effort: if the browser refuses, calibration runs windowed.
 
 ## Restore, reset, and reuse
 
-- Saved records belong to the same browser origin, including protocol and
-  port. Reload restores a compatible record without opening the camera.
-- Select **Verify saved camera** after restoration. This briefly opens the
-  capture camera, compares device identity, facing mode, and actual image
-  dimensions, then stops the camera. Unknown or changed settings require
-  recalibration. A restored fit stays pending until verification succeeds.
-- **Recalibrate** captures and saves a replacement. **Clear calibration**
-  removes the saved JPEGs and fit; a failed clear retains the existing record.
-- Corrupt records, incompatible versions, and known metadata mismatches do
-  not become usable calibrations. A failed save reports that the new fit was
-  not saved and keeps the prior record.
-- Matching camera settings cannot establish unchanged posture, screen/window
-  placement, or lighting. Recalibrate after those conditions change. Camera
-  intrinsics are approximations, shared between capture and gameplay.
+- Reload restores compatible records from the same browser origin without
+  opening the camera. Select **Verify saved camera** to compare device,
+  facing mode, and image dimensions; unknown or changed settings need recalibration.
+- **Recalibrate** saves a replacement. **Clear calibration** deletes the
+  JPEGs and fit. Failed writes or clears preserve the previous record;
+  corrupt or incompatible records are not activated.
+- Recalibrate after changing posture, screen/window placement, or lighting.
+  Matching metadata cannot verify those conditions. Calibration and gameplay
+  share the same approximate camera intrinsics.
 
 ## Gameplay
 
-Open **Maze** to start live webcam prediction. A verified fit is applied once
-after each successful raw prediction when the live camera identity and frame
-dimensions match its metadata. The direction boundary rejects non-finite
-coordinates and clamps finite corrected coordinates to `[0, 1]`.
+Open **Maze** to start live prediction. A verified fit corrects each prediction
+once when the camera and frame dimensions match. Otherwise, gameplay uses raw
+predictions and reports when verification or recalibration is needed.
+The direction boundary rejects non-finite values and clips corrected coordinates
+to `[0, 1]`. Missing faces and prediction failures stop gaze movement.
+Arrow keys remain available, including when camera access fails. The existing
+direction thresholds, movement timing, and collision rules are unchanged.
 
-Without a usable calibration, the maze uses raw predictions and reports when
-verification or recalibration is needed. Missing faces, rejected frames, and
-prediction failures stop gaze movement. Arrow-key controls remain available,
-including when the camera is denied or unavailable.
+## Accuracy check
 
-This branch integrates final PR #68 from `origin/master` at merge commit
-`1cdffb9abf62dae9e4553d5e3bb355848f020800`. Its center thresholds (`0.4`/`0.6`), prediction delay
-(`200 ms` after completion), movement interval (`160 ms`), and collision
-rules are preserved.
+After calibration (or verifying a restored camera), select **Validate
+calibration**. The check reuses the capture screen with four targets, each
+collecting three fresh frames with **Space**. It compares raw and corrected
+mean Euclidean error against the same targets using the same valid frames.
+Errors use normalized screen coordinates without clipping; lower is better.
+Every target needs at least one valid frame.
 
-## Independent accuracy check
-
-1. Complete a new calibration, or restore one and select **Verify saved
-   camera**. Keep your position and camera setup fixed.
-2. Select **Validate calibration**. This captures three new frames at each
-   of four fixed targets, in order: `(0.25, 0.25)`, `(0.75, 0.25)`,
-   `(0.25, 0.75)`, `(0.75, 0.75)`. Look at each target and press Space.
-3. Read the raw and corrected mean errors and valid-frame count. Each target
-   needs at least one valid paired frame. Both means use exactly the same
-   accepted frames and their own target labels.
-4. Copy **Validation metrics JSON** into the execution record for review.
-   It contains the fixed targets, errors, counts, fit/model/camera metadata,
-   and per-frame predictions/failures. It contains no JPEG data. The report
-   is held in memory and is cleared when a new calibration starts or the
-   current calibration is cleared.
-
-The metric is mean Euclidean distance in normalized screen coordinates;
-lower is better. The primary corrected metric uses the **unclipped** ridge
-output; gameplay clipping is separate. Validation never refits the model,
-changes lambda, or replaces the saved calibration. Known fitting-frame
-reuse and captures predating the fit are rejected.
-
-If corrected error does not improve, investigate orientation, camera
-assumptions, posture, image quality, and regularization before claiming an
-accuracy gain. Do not change the validation targets after seeing results
-or report fitting error as independent accuracy evidence. Synthetic tests
-prove arithmetic and integration, not improvement for a real player.
+The result shows both means and the valid frame count. **Try again** captures
+another check; **Back to Home** cancels processing or closes the result. The
+check does not refit or save calibration, and results only last on this page.
+Automated tests do not establish a real-user accuracy improvement.
 
 ## Testing
 

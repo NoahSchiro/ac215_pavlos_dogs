@@ -20,11 +20,10 @@ export interface CalibrationProgress {
 }
 
 export type CalibrationTaskState =
-  | { status: 'idle' | 'cancelled' | 'restoring' | 'restored' | 'saving' | 'clearing' | 'cleared' | 'verifying' | 'verified' | 'validation-ready' | 'validation-cancelled' }
+  | { status: 'idle' | 'cancelled' | 'restoring' | 'restored' | 'saving' | 'clearing' | 'cleared' | 'verifying' | 'verified' }
   | ({ status: 'processing' } & CalibrationProgress)
-  | ({ status: 'validating' } & CalibrationProgress)
   | { status: 'success'; validFrames: number; total: number }
-  | { status: 'error'; message: string; operation?: 'validation' }
+  | { status: 'error'; message: string }
 
 export type CalibrationProcessingResult =
   | { ok: true; calibration: PersonalCalibration }

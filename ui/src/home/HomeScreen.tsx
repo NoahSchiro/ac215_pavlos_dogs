@@ -1,12 +1,10 @@
 import type { CalibrationTaskState } from '../calibration/process'
 import type { CalibrationSession } from '../calibration/record'
-import type { ValidationReport } from '../calibration/validation'
 import './home.css'
 
 interface Props {
   calibration: CalibrationSession | null
   calibrationTask: CalibrationTaskState
-  validationReport: ValidationReport | null
   onStartValidation: () => void
   onCancelProcessing: () => void
   onClearCalibration: () => void
@@ -18,7 +16,7 @@ interface Props {
 }
 
 /** Entry screen: choose between the maze and gaze calibration. */
-export function HomeScreen({ calibration, calibrationTask, validationReport, onStartValidation, onCancelProcessing, onClearCalibration, onVerifyCamera, onStartMaze, onStartCalibration, theme, onToggleTheme }: Props) {
+export function HomeScreen({ calibration, calibrationTask, onStartValidation, onCancelProcessing, onClearCalibration, onVerifyCamera, onStartMaze, onStartCalibration, theme, onToggleTheme }: Props) {
   return (
     <main className="home">
       <h1>Gaze Maze</h1>
@@ -52,9 +50,9 @@ export function HomeScreen({ calibration, calibrationTask, validationReport, onS
             <button type="button" onClick={onCancelProcessing}>Cancel processing</button>
           </>
         )}
-        {(calibrationTask.status === 'processing' || calibrationTask.status === 'validating') && (
+        {calibrationTask.status === 'processing' && (
           <>
-            <p role="status">{calibrationTask.status === 'validating' ? 'Checking accuracy' : 'Processing calibration'}: {calibrationTask.completed} of {calibrationTask.total} frames.</p>
+            <p role="status">Processing calibration: {calibrationTask.completed} of {calibrationTask.total} frames.</p>
             <progress aria-label="Frames processed" value={calibrationTask.completed} max={calibrationTask.total || 1} />
             <button type="button" onClick={onCancelProcessing}>Cancel processing</button>
           </>
@@ -64,16 +62,13 @@ export function HomeScreen({ calibration, calibrationTask, validationReport, onS
         )}
         {calibrationTask.status === 'error' && (
           <>
-            <p role="alert">{calibrationTask.operation === 'validation' ? 'Validation failed.' : 'Calibration failed.'} {calibrationTask.message}{calibration?.cameraVerification === 'verified' ? ' Previous calibration kept.' : ''}</p>
-            <button type="button" onClick={calibrationTask.operation === 'validation' ? onStartValidation : onStartCalibration}>
-              {calibrationTask.operation === 'validation' ? 'Retry validation' : 'Retry calibration'}
-            </button>
+            <p role="alert">Calibration failed. {calibrationTask.message}{calibration?.cameraVerification === 'verified' ? ' Previous calibration kept.' : ''}</p>
+            <button type="button" onClick={onStartCalibration}>Retry calibration</button>
           </>
         )}
         {calibrationTask.status === 'cancelled' && (
           <p role="status">Calibration processing cancelled.{calibration ? ' Previous calibration kept.' : ''}</p>
         )}
-        {calibrationTask.status === 'validation-cancelled' && <p role="status">Validation cancelled. Your saved calibration was not changed.</p>}
         <div className="calibration-storage-actions">
           {calibration?.cameraVerification === 'pending' && (
             <button type="button" disabled={calibrationTask.status === 'verifying'} onClick={onVerifyCamera}>Verify saved camera</button>
@@ -82,22 +77,6 @@ export function HomeScreen({ calibration, calibrationTask, validationReport, onS
           <button type="button" disabled={calibration?.cameraVerification !== 'verified'} onClick={onStartValidation}>Validate calibration</button>
         </div>
       </section>
-
-      {validationReport && (
-        <section className="calibration-result validation-report" aria-label="Calibration accuracy">
-          <h2>Accuracy check</h2>
-          <p role="status">Validation complete. {validationReport.validFrameCount} of {validationReport.plannedFrameCount} paired frames used.</p>
-          <dl>
-            <dt>Raw mean error</dt><dd>{validationReport.rawMeanError.toFixed(6)}</dd>
-            <dt>Corrected mean error</dt><dd>{validationReport.correctedMeanError.toFixed(6)}</dd>
-          </dl>
-          <p>Mean Euclidean error in normalized screen coordinates. Lower is better. Validation frames do not change your calibration.</p>
-          {!validationReport.improved && <p role="alert">The correction did not improve this validation set. Investigate camera orientation, position, image quality, and regularization before claiming an improvement.</p>}
-          <label>Copy the metrics record for review:
-            <textarea aria-label="Validation metrics JSON" readOnly rows={8} value={JSON.stringify(validationReport, null, 2)} />
-          </label>
-        </section>
-      )}
 
       <p className="home-note">
         Calibration uses your webcam. Images and parameters are saved in this browser on this device and are never uploaded. Clear calibration deletes the saved record.

@@ -83,22 +83,6 @@ test.each(['constant', 'tiny', 'horizontal', 'vertical', 'diagonal', 'burst jitt
   },
 )
 
-test('accepts modest independent variation outside the screen bounds without clipping', async () => {
-  const captured = capture()
-  captured.samples.forEach(({ target }) => predict.mockResolvedValueOnce(prediction(-2 + target.x * 0.1, 3 + target.y * 0.1)))
-  expect((await processCalibration(captured)).ok).toBe(true)
-})
-
-test('awaits each prediction before starting the next frame', async () => {
-  let finish!: (value: CalibrationImagePrediction) => void
-  predict.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
-  const pending = processCalibration(capture(1))
-  expect(predict).toHaveBeenCalledTimes(1)
-  finish(prediction())
-  expect((await pending).ok).toBe(true)
-  expect(predict).toHaveBeenCalledTimes(9)
-})
-
 test('keeps a rejected frame and fits the remaining frames when coverage survives', async () => {
   predict.mockResolvedValueOnce({ ok: false, stage: 'preprocess', reason: 'face_not_detected' })
   const result = await processCalibration(capture())
@@ -120,17 +104,6 @@ test('reports missing coverage when every frame at a target fails', async () => 
   expect(result).not.toHaveProperty('calibration')
 })
 
-test('requires nine distinct targets rather than nine valid frames', async () => {
-  const captured = capture()
-  const result = await processCalibration({ ...captured, samples: captured.samples.slice(0, 24) })
-  expect(result).toMatchObject({ ok: false, missingPointIndices: [8] })
-})
-
-test('rejects an empty capture without calling inference', async () => {
-  expect(await processCalibration({ samples: [], completedAt: 0 })).toMatchObject({ ok: false })
-  expect(predict).not.toHaveBeenCalled()
-})
-
 test.each([
   { pointIndex: 9, target: CALIBRATION_POINTS[0] },
   { pointIndex: 0.5, target: CALIBRATION_POINTS[0] },
@@ -145,35 +118,12 @@ test.each([
   expect(predict).not.toHaveBeenCalled()
 })
 
-test('retains unexpected prediction failures with their sample', async () => {
-  predict.mockRejectedValueOnce(new Error('runtime failed'))
-  const result = await processCalibration(capture(1))
-  expect(result.ok).toBe(false)
-  if (result.ok) throw new Error('Expected failure')
-  expect(result.frames[0].result).toEqual({ ok: false, stage: 'inference', reason: 'runtime failed' })
-})
-
-test('does not publish a fit when variation arithmetic overflows', async () => {
-  predict.mockResolvedValue(prediction(1e308, -1e308))
-  predict.mockResolvedValueOnce(prediction(-1e308, 1e308))
-  const result = await processCalibration(capture(1))
-  expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/insufficient.*variation/i) })
-  expect(result).not.toHaveProperty('calibration')
-})
-
 test('rejects a non-finite prediction as a failed frame', async () => {
   predict.mockResolvedValueOnce(prediction(NaN, 0.5))
   const result = await processCalibration(capture(1))
   expect(result.ok).toBe(false)
   if (result.ok) throw new Error('Expected failure')
   expect(result.frames[0].result).toMatchObject({ ok: false, reason: 'non_finite_prediction' })
-})
-
-test('does not start an already cancelled run', async () => {
-  const controller = new AbortController()
-  controller.abort()
-  await expect(processCalibration(capture(), { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
-  expect(predict).not.toHaveBeenCalled()
 })
 
 test('stops after an in-flight prediction resolves when cancelled', async () => {

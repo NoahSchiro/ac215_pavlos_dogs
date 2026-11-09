@@ -8,9 +8,6 @@ import { defineConfig } from 'vite'
 // - "vision": the preprocessing pipeline tests, which need a real browser
 export default defineConfig({
   plugins: [react()],
-  // Browser persistence tests load the real app in a fresh document.
-  // Prebundle its entry to prevent a mid-test dependency-discovery reload.
-  optimizeDeps: { include: ['react-dom/client'] },
   test: {
     projects: [
       {

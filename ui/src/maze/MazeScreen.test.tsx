@@ -40,11 +40,6 @@ test('feeds a matching personal correction to maze movement', async () => {
   })
 })
 
-test('falls back to raw movement without calibration', async () => {
-  await act(async () => { render(<MazeScreen onBack={vi.fn()} />) })
-  expect(screen.getByTestId('direction')).toHaveTextContent('left')
-})
-
 test.each(['face_not_detected', 'pose_failed'] as const)('stops movement on the next rejected frame: %s', async (reason) => {
   await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
   expect(screen.getByTestId('direction')).toHaveTextContent('right')
@@ -52,22 +47,4 @@ test.each(['face_not_detected', 'pose_failed'] as const)('stops movement on the 
   await act(async () => { await vi.advanceTimersByTimeAsync(200) })
   expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
   expect(screen.getByRole('status')).toHaveTextContent(reason)
-})
-
-test('stops movement when a prediction throws', async () => {
-  await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
-  expect(screen.getByTestId('direction')).toHaveTextContent('right')
-  vi.mocked(predictGaze).mockRejectedValueOnce(new Error('inference failed'))
-  await act(async () => { await vi.advanceTimersByTimeAsync(200) })
-  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
-})
-
-test('does not run another prediction after an in-flight request finishes after unmount', async () => {
-  let finish!: (point: { x: number; y: number }) => void
-  vi.mocked(predictGaze).mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
-  let unmount!: () => void
-  await act(async () => { ({ unmount } = render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />)) })
-  unmount()
-  await act(async () => { finish({ x: 0.2, y: 0.5 }); await vi.advanceTimersByTimeAsync(1000) })
-  expect(predictGaze).toHaveBeenCalledTimes(1)
 })

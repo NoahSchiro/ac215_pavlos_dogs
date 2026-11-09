@@ -78,26 +78,6 @@
   margin-top: 16px;
 }
 
-.validation-report textarea {
-  box-sizing: border-box;
-  width: 100%;
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid var(--home-border);
-  border-radius: 8px;
-  color: var(--home-ink);
-  background: var(--home-card);
-}
-
-.validation-report dl {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  text-align: left;
-  gap: 12px;
-}
-
-.validation-report dd { margin: 0; }
-
 .home {
   --home-bg: #fffdf5;
   --home-ink: #57416b;

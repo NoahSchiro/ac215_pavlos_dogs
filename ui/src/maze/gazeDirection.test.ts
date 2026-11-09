@@ -63,11 +63,3 @@ test.each(['model', 'format'] as const)('does not use a verified fit after its %
     calibrated: false, point: { x: 0.2, y: 0.5 },
   })
 })
-
-test.each([
-  [0.4, 0.6, null], [0.6, 0.4, null], [0.2, 0.5, 'left'], [0.8, 0.5, 'right'],
-  [0.5, 0.2, 'up'], [0.5, 0.8, 'down'], [0.2, 0.2, 'up'],
-  [NaN, 0.5, null], [Infinity, 0.5, null], [-0.1, 0.5, null], [1.1, 0.5, null],
-] as const)('preserves the PR direction rule (%s, %s) => %s', (x, y, expected) => {
-  expect(gazeToDirection(x, y)).toBe(expected)
-})

@@ -42,7 +42,6 @@ export {
   MODEL_LANDMARK_IDS,
 } from './utils'
 export type { ScreenFraction, GazeModel } from './model'
-export { approximateCameraIntrinsics } from './camera'
 export {
   loadGazeModel,
   predictScreenFraction,

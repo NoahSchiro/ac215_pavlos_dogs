@@ -1,9 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Calibration } from './Calibration'
-import { CALIBRATION_POINTS, FRAMES_PER_POINT } from './points'
+import { CALIBRATION_POINTS, VALIDATION_POINTS, FRAMES_PER_POINT, type CalibrationResult } from './points'
 import type { Camera, CameraStatus } from './useCamera'
-import { VALIDATION_POINTS } from './validation'
 
 vi.mock('./useCamera', () => ({ useCamera: vi.fn() }))
 vi.mock('./capture', () => ({ captureBurst: vi.fn() }))
@@ -59,20 +58,17 @@ beforeEach(() => {
 })
 
 describe('Calibration', () => {
-  it('captures only the four fixed validation targets when used for accuracy measurement', async () => {
+  it('captures only the four validation targets without changing the default nine-point grid', async () => {
     const onComplete = vi.fn()
-    render(<Calibration purpose="validation" targets={VALIDATION_POINTS} onComplete={onComplete} onCancel={vi.fn()} />)
+    render(<Calibration mode="validation" onComplete={onComplete} onCancel={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Begin' }))
     expect(screen.getByRole('application')).toHaveAttribute('aria-label', 'Gaze validation')
-    for (let i = 0; i < 4; i++) {
-      expect(screen.getByText(`Point ${i + 1} of 4`)).toBeInTheDocument()
-      await pressSpace()
-    }
-    const captured = onComplete.mock.calls[0][0]
-    expect(captured.samples).toHaveLength(12)
-    captured.samples.forEach((sample: { pointIndex: number; target: unknown }, i: number) => {
-      expect(sample.target).toEqual(VALIDATION_POINTS[Math.floor(i / 3)])
-    })
+    for (let i = 0; i < 4; i++) await pressSpace()
+    const result = onComplete.mock.calls[0][0] as CalibrationResult
+    expect(result.samples).toHaveLength(12)
+    result.samples.forEach((sample, i) => expect(sample.target).toEqual(VALIDATION_POINTS[Math.floor(i / 3)]))
+    expect(CALIBRATION_POINTS).toHaveLength(9)
+    expect(camera.stop).toHaveBeenCalledOnce()
   })
 
   it('starts the camera on mount', () => {

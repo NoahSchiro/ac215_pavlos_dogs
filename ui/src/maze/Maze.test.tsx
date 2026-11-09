@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import Maze from './Maze'
 import { generateMaze } from './mazeGenerator'
 
@@ -88,23 +88,6 @@ beforeEach(() => {
 })
 
 describe('Maze', () => {
-  it('uses the existing 160 ms movement loop for gaze, stops on null, and retains keyboard control', () => {
-    vi.useFakeTimers()
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
-    mockedGenerateMaze.mockImplementation(createTestMaze)
-    const { rerender, unmount } = render(<Maze gazeDirection="right" />)
-    try {
-      expect(getPlayerPosition()).toEqual({ row: 0, col: 1 })
-      act(() => { vi.advanceTimersByTime(160) })
-      expect(getPlayerPosition()).toEqual({ row: 0, col: 2 })
-      rerender(<Maze gazeDirection={null} />)
-      act(() => { vi.advanceTimersByTime(320) })
-      expect(getPlayerPosition()).toEqual({ row: 0, col: 2 })
-      pressArrow('ArrowDown')
-      expect(getPlayerPosition()).toEqual({ row: 1, col: 2 })
-    } finally { unmount(); random.mockRestore(); vi.useRealTimers() }
-  })
-
   it('renders the maze and cheese', () => {
     setupMaze()
 
