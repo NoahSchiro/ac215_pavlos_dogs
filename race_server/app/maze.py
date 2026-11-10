@@ -1,5 +1,6 @@
-#randomly generates the race maze (same dfs algorithm as the solo game) and checks if a move hits a wall
-#the server makes the maze so both players get the exact same one and nobody can send a fake easy maze
+# randomly generates the race maze (same dfs algorithm as the solo game)
+# and checks if a move hits a wall. the server makes the maze so both players
+# get the exact same one and nobody can send a fake easy maze
 
 import random
 from dataclasses import dataclass, field
@@ -46,7 +47,7 @@ class Maze:
 
 
 def generate_maze(rows: int, cols: int, rng: random.Random | None = None) -> Maze:
-    #each player gets the exact same maze
+    # each player gets the exact same maze
     if rows < 2 or cols < 2:
         raise ValueError(f"maze must be at least 2x2, got {rows}x{cols}")
     rng = rng or random.Random()

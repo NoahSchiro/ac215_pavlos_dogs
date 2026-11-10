@@ -1,7 +1,7 @@
-#fastapi app: endpoints to create and inspect rooms, plus a websocket per player
-#gaze inference stays in each player's browser. the browser only sends moves
+# fastapi app: endpoints to create and inspect rooms, plus a websocket per player
+# gaze inference stays in each player's browser. the browser only sends moves
 # (up/down/left/right) here. this server is the referee: it owns the shared
-# aze, checks every move, and sends the updated positions to both players
+# maze, checks every move, and sends the updated positions to both players
 
 import json
 import logging
