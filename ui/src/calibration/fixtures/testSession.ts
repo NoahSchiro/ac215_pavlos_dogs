@@ -1,4 +1,4 @@
-import type { CaptureCamera } from '../cameraMetadata'
+import type { CaptureCamera } from '../../vision/camera'
 import { CALIBRATION_POINTS } from '../points'
 import { createCalibrationRecord, type CalibrationSession } from '../record'
 import { fitCalibration } from '../ridge'

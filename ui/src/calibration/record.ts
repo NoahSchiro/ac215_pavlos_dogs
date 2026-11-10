@@ -1,10 +1,11 @@
 import type { PersonalCalibration } from './process'
-import { CALIBRATION_POINTS } from './points'
-import { applyCalibration, fitCalibration } from './ridge'
-import { approximateCameraIntrinsics } from '../vision/camera'
+import { CALIBRATION_POINTS, FRAMES_PER_POINT } from './points'
+import { applyCalibration, type CalibrationFit } from './ridge'
+import type { CaptureCamera } from '../vision/camera'
+import type { Viewport } from '../vision/viewport'
 import { captureViewport } from './viewport'
 
-// Bump these identifiers whenever the pinned assets or preprocessing contract change.
+// A saved correction depends on the model outputs used during calibration.
 export const CALIBRATION_COMPATIBILITY = {
   modelId: 'sha256:c4a11ab96dc64766cd1abd622838b50b297aaec4adf4f25ebf71cf0b66bcbee6',
   preprocessingVersion: 1,
@@ -13,10 +14,16 @@ export const CALIBRATION_COMPATIBILITY = {
 } as const
 
 export interface CalibrationRecord {
-  readonly version: 1
+  readonly version: 2
   readonly savedAt: number
   readonly compatibility: typeof CALIBRATION_COMPATIBILITY
-  readonly calibration: PersonalCalibration
+  readonly calibration: {
+    readonly fit: CalibrationFit
+    readonly camera: CaptureCamera
+    readonly viewport: Viewport
+    readonly completedAt: number
+    readonly validFrameCounts: readonly number[]
+  }
 }
 
 export interface CalibrationSession {
@@ -32,8 +39,18 @@ export function calibrationCompatibilityMatches(value: unknown): boolean {
 }
 
 export function createCalibrationRecord(calibration: PersonalCalibration): CalibrationRecord {
+  const { capture, fit, validFrameCounts, frames } = calibration
+  const viewport = captureViewport(capture)
+  requireValid(viewport, 'Calibration contains inconsistent viewport sizes. Recalibrate.')
+  const camera = capture.camera
+  requireValid(camera, 'Capture camera identity is unavailable. Recalibrate.')
+  requireValid(frames.every(({ result }) => !result.ok ||
+    (result.image.width === camera.width && result.image.height === camera.height)),
+  'Image dimensions do not match capture camera. Recalibrate.')
   const record: CalibrationRecord = {
-    version: 1, savedAt: Date.now(), compatibility: { ...CALIBRATION_COMPATIBILITY }, calibration,
+    version: 2, savedAt: Date.now(), compatibility: { ...CALIBRATION_COMPATIBILITY },
+    calibration: { fit, camera: { ...camera }, viewport, completedAt: capture.completedAt,
+      validFrameCounts: [...validFrameCounts] },
   }
   validateCalibrationRecord(record)
   return record
@@ -45,65 +62,25 @@ function requireValid(condition: unknown, message: string): asserts condition {
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const positiveInteger = (value: number) => Number.isSafeInteger(value) && value > 0
 
-/** Validate both storage shape and the relationships needed to trust this fit. */
+/** Validate the saved correction and metadata without retaining fitting frames. */
 export function validateCalibrationRecord(value: unknown): asserts value is CalibrationRecord {
   const r = value as CalibrationRecord
-  requireValid(r && r.version === 1, 'Unsupported calibration record version. Recalibrate.')
+  requireValid(r && r.version === 2, 'Unsupported calibration record version. Recalibrate.')
   requireValid(calibrationCompatibilityMatches(r.compatibility), 'Model or preprocessing settings changed. Recalibrate.')
   requireValid(finite(r.savedAt) && r.savedAt >= 0, 'Invalid calibration save time.')
   const calibration = r.calibration
-  const capture = calibration?.capture
-  requireValid(capture && finite(capture.completedAt) && capture.completedAt >= 0, 'Invalid calibration capture.')
-  const camera = capture.camera
+  requireValid(calibration && finite(calibration.completedAt) && calibration.completedAt >= 0 &&
+    calibration.completedAt <= r.savedAt, 'Invalid calibration capture time.')
+  const camera = calibration.camera
   requireValid(camera && typeof camera.deviceId === 'string' && camera.deviceId.trim() &&
     typeof camera.label === 'string' && positiveInteger(camera.width) && positiveInteger(camera.height) &&
     (camera.facingMode === null || typeof camera.facingMode === 'string'),
   'Capture camera identity or dimensions are unavailable. Recalibrate on a supported camera.')
-  requireValid(Array.isArray(capture.samples) && capture.samples.length >= 9 && capture.samples.length <= 27,
-    'Invalid calibration samples.')
-  requireValid(captureViewport(capture), 'Calibration contains inconsistent viewport sizes. Recalibrate.')
-  requireValid(Array.isArray(calibration.frames) && calibration.frames.length === capture.samples.length,
-    'Invalid calibration frame outcomes.')
-  requireValid(Array.isArray(calibration.validFrameCounts) && calibration.validFrameCounts.length === 9,
+  requireValid(calibration.viewport && positiveInteger(calibration.viewport.width) && positiveInteger(calibration.viewport.height),
+    'Invalid calibration viewport size. Recalibrate.')
+  requireValid(Array.isArray(calibration.validFrameCounts) && calibration.validFrameCounts.length === CALIBRATION_POINTS.length &&
+    calibration.validFrameCounts.every((count) => Number.isInteger(count) && count > 0 && count <= FRAMES_PER_POINT),
     'Invalid calibration frame counts.')
-  const counts = CALIBRATION_POINTS.map(() => 0)
-  const capturedCounts = CALIBRATION_POINTS.map(() => 0)
-  const predictions = []
-  const targets = []
-  const expectedIntrinsics = approximateCameraIntrinsics(camera.width, camera.height)
-  for (let i = 0; i < capture.samples.length; i++) {
-    const sample = capture.samples[i]
-    const target = CALIBRATION_POINTS[sample?.pointIndex]
-    requireValid(sample && Number.isInteger(sample.pointIndex) && target &&
-      sample.target?.x === target.x && sample.target?.y === target.y, 'Invalid sample target metadata.')
-    requireValid(sample.image instanceof Blob && sample.image.size > 0 && sample.image.type === 'image/jpeg', 'Invalid sample JPEG Blob.')
-    requireValid(positiveInteger(sample.viewportWidth) && positiveInteger(sample.viewportHeight) &&
-      finite(sample.timestamp) && sample.timestamp >= 0 && sample.timestamp <= capture.completedAt, 'Invalid sample capture metadata.')
-    capturedCounts[sample.pointIndex]++
-    const frame = calibration.frames[i]
-    requireValid(frame?.sample === sample && frame.result && typeof frame.result.ok === 'boolean', 'Invalid frame-to-sample association.')
-    const result = frame.result
-    if (result.ok) {
-      requireValid(finite(result.prediction?.x) && finite(result.prediction?.y), 'Invalid raw prediction.')
-      requireValid(result.image?.width === camera.width && result.image?.height === camera.height,
-        'Image dimensions do not match capture camera. Recalibrate.')
-      requireValid(result.intrinsics?.focalLengthPx === expectedIntrinsics.focalLengthPx &&
-        result.intrinsics.principalPoint?.x === expectedIntrinsics.principalPoint.x &&
-        result.intrinsics.principalPoint?.y === expectedIntrinsics.principalPoint.y, 'Invalid frame camera parameters.')
-      counts[sample.pointIndex]++
-      predictions.push(result.prediction)
-      targets.push(sample.target)
-    } else {
-      requireValid(['decode', 'landmarker', 'model', 'preprocess', 'inference'].includes(result.stage) &&
-        typeof result.reason === 'string' && result.reason.length > 0, 'Invalid failed-frame outcome.')
-    }
-  }
-  requireValid(counts.every((count, i) => count > 0 && count === calibration.validFrameCounts[i] && capturedCounts[i] <= 3),
-    'Calibration target coverage or valid-frame counts are inconsistent.')
   requireValid(calibration.fit && finite(calibration.fit.lambda) && calibration.fit.lambda >= 0, 'Invalid saved ridge lambda.')
   applyCalibration({ x: 0.5, y: 0.5 }, calibration.fit)
-  const expectedFit = fitCalibration(predictions, targets, calibration.fit.lambda)
-  const actual = [...calibration.fit.weight.flat(), ...calibration.fit.intercept]
-  const expected = [...expectedFit.weight.flat(), ...expectedFit.intercept]
-  requireValid(actual.every((coefficient, i) => Math.abs(coefficient - expected[i]) <= 1e-10), 'Stored fit does not match its samples.')
 }

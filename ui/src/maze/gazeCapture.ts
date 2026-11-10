@@ -2,9 +2,6 @@ import type { ImageArray } from '../vision/utils'
 import { predictGaze } from '../vision/model'
 import { approximateCameraIntrinsics } from '../vision/camera'
 
-// Preserve PR #68's public API while sharing the gameplay direction rule.
-export { gazeToDirection, type Direction } from './gazeDirection'
-
 /** Convert a webcam video frame into an RGB image for gaze inference. */
 export function captureGazeFrame(
   video: HTMLVideoElement,
@@ -39,11 +36,6 @@ export function captureGazeFrame(
   }
 }
 
-/** Approximate webcam camera intrinsics from image dimensions. */
-export function getCameraIntrinsics(image: ImageArray) {
-  return approximateCameraIntrinsics(image.cols, image.rows)
-}
-
 /** Run one gaze prediction using a captured webcam frame. */
 export async function runGazeInference(
   video: HTMLVideoElement,
@@ -60,6 +52,6 @@ export async function runGazeInference(
     landmarker,
     model,
     image,
-    getCameraIntrinsics(image),
+    approximateCameraIntrinsics(image.cols, image.rows),
   )
 }

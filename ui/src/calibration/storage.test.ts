@@ -3,15 +3,15 @@ import { Blob as NodeBlob } from 'node:buffer'
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createCalibrationRecord } from './record'
-import { testSession } from './fixtures/testSession'
+import { TEST_CAMERA, testSession } from './fixtures/testSession'
 import {
   CALIBRATION_DB_NAME, CALIBRATION_KEY, CALIBRATION_STORE,
   clearCalibration, loadCalibration, saveCalibration,
 } from './storage'
 
 // Write raw data to simulate an older version or a corrupt existing record.
-async function putRaw(value: unknown) {
-  const request = indexedDB.open(CALIBRATION_DB_NAME, 1)
+async function putRaw(value: unknown, version = 2) {
+  const request = indexedDB.open(CALIBRATION_DB_NAME, version)
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     request.onupgradeneeded = () => request.result.createObjectStore(CALIBRATION_STORE)
     request.onsuccess = () => resolve(request.result)
@@ -34,24 +34,31 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-test('restores a complete record, including Blobs, fit, lambda, and capture metadata', async () => {
+test('persists and restores the fitted correction without images or per-frame results', async () => {
   const record = testSession().record
+  const put = vi.spyOn(IDBObjectStore.prototype, 'put')
   await saveCalibration(record)
+  const stored = put.mock.calls[0][0] as typeof record
+  expect(stored.calibration).not.toHaveProperty('capture')
+  expect(stored.calibration).not.toHaveProperty('frames')
   const loaded = await loadCalibration()
   expect(loaded.status).toBe('restored')
   if (loaded.status !== 'restored') throw new Error('Expected restored record')
   expect(loaded.record.calibration.fit).toEqual(record.calibration.fit)
   expect(loaded.record.calibration.validFrameCounts).toEqual(Array(9).fill(1))
   expect(loaded.record.compatibility).toEqual(record.compatibility)
-  expect(loaded.record.calibration.capture.camera).toEqual(record.calibration.capture.camera)
-  expect(loaded.record.calibration.capture.samples[0].image).toBeInstanceOf(Blob)
-  expect(await loaded.record.calibration.capture.samples[0].image.text()).toBe('jpeg')
-  expect(loaded.record.calibration.frames[0].sample).toBe(loaded.record.calibration.capture.samples[0])
+  expect(loaded.record).toEqual(record)
+  expect(loaded.record.calibration).toMatchObject({ camera: TEST_CAMERA, viewport: { width: 800, height: 600 }, completedAt: 2 })
 })
 
-test('rejects a record captured across different viewport sizes', async () => {
+test('removes legacy records containing photos during the storage upgrade', async () => {
+  await putRaw({ version: 1, calibration: { capture: { samples: [{ image: new Blob(['old photo']) }] } } }, 1)
+  expect(await loadCalibration()).toEqual({ status: 'empty' })
+})
+
+test('rejects a saved record with invalid viewport dimensions', async () => {
   const record = testSession().record
-  Object.assign(record.calibration.capture.samples[0], { viewportWidth: 900 })
+  Object.assign(record.calibration.viewport, { width: 0 })
   await expect(saveCalibration(record)).rejects.toThrow(/window|viewport/i)
 })
 
@@ -72,17 +79,17 @@ test.each([
   ['intrinsics version', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, compatibility: { ...r.compatibility, intrinsicsVersion: 99 } })],
   ['orientation', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, compatibility: { ...r.compatibility, imageOrientation: 'mirrored' } })],
   ['non-finite fit', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, fit: { ...r.calibration.fit, intercept: [NaN, 0] } } })],
-  ['wrong counts', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, validFrameCounts: Array(9).fill(3) } })],
-  ['missing samples', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, capture: { ...r.calibration.capture, samples: [] } } })],
-  ['unknown camera', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, capture: { ...r.calibration.capture, camera: null } } })],
+  ['wrong counts', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, validFrameCounts: Array(9).fill(4) } })],
+  ['missing target coverage', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, validFrameCounts: Array(9).fill(0) } })],
+  ['unknown camera', (r: ReturnType<typeof createCalibrationRecord>) => ({ ...r, calibration: { ...r.calibration, camera: null } })],
 ])('rejects a record with %s', async (_, corrupt) => {
   await putRaw(corrupt(testSession().record))
   expect(await loadCalibration()).toMatchObject({ status: 'invalid', reason: expect.any(String) })
 })
 
-test('rejects finite coefficients that no longer match the saved prediction-target pairs', async () => {
+test('rejects a saved correction with malformed weight dimensions', async () => {
   const record = testSession().record
-  await putRaw({ ...record, calibration: { ...record.calibration, fit: { ...record.calibration.fit, intercept: [0.4, 0.6] } } })
+  await putRaw({ ...record, calibration: { ...record.calibration, fit: { ...record.calibration.fit, weight: [[1]] } } })
   expect(await loadCalibration()).toMatchObject({ status: 'invalid' })
 })
 

@@ -56,7 +56,7 @@ test('rejects a non-finite correction rather than clamping it to a movement', ()
 test.each(['model', 'format'] as const)('does not use a verified fit after its %s version changes', (kind) => {
   const session = testSession()
   const incompatible = { ...session, record: {
-    ...session.record, version: kind === 'format' ? 99 : 1,
+    ...session.record, version: kind === 'format' ? 99 : session.record.version,
     compatibility: { ...session.record.compatibility, modelId: kind === 'model' ? 'old-model' : session.record.compatibility.modelId },
   } } as unknown as CalibrationSession
   expect(prepareGameplayGaze({ x: 0.2, y: 0.5 }, incompatible, TEST_CAMERA, dimensions)).toEqual({

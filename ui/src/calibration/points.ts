@@ -6,7 +6,7 @@
  * gaze model predicts in, so samples can be fed to per-user fitting directly.
  */
 
-import type { CaptureCamera } from './cameraMetadata'
+import type { CaptureCamera } from '../vision/camera'
 
 export interface NormalizedPoint {
   /** Horizontal position as a fraction of viewport width, 0 = left. */

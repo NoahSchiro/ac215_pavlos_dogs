@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { captureBurst } from './capture'
-import { captureCameraSettings } from './cameraMetadata'
+import { captureCameraSettings } from '../vision/camera'
 import { Crosshair } from './Crosshair'
 import { enterFullscreen } from './fullscreen'
 import {
@@ -12,7 +12,7 @@ import {
   type CalibrationSample,
 } from './points'
 import { useCamera } from './useCamera'
-import { currentViewport, sameViewport, type Viewport } from './viewport'
+import { currentViewport, sameViewport, type Viewport } from '../vision/viewport'
 import './calibration.css'
 
 interface Props {

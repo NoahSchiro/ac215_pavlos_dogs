@@ -1,7 +1,7 @@
 import { approximateCameraIntrinsics } from '../vision/camera'
 import { loadGazeModel, predictGaze, type ScreenFraction } from '../vision/model'
 import { getLandmarker, type CameraIntrinsics } from '../vision/utils'
-import { decodeCalibrationJpeg } from './jpeg'
+import { decodeJpeg } from '../vision/jpeg'
 
 type FailureStage = 'decode' | 'landmarker' | 'model' | 'preprocess' | 'inference'
 
@@ -14,15 +14,11 @@ export type CalibrationImagePrediction =
     }
   | { ok: false; stage: FailureStage; reason: string }
 
-/**
- * Phase 1 diagnostic: one captured JPEG -> one raw model prediction.
- * The existing loaders cache initialization once per page. This does not
- * fit, save, clip, or apply a personal correction.
- */
+/** Decode a captured image and run the existing preprocessing and gaze model. */
 export async function predictCalibrationImage(blob: Blob): Promise<CalibrationImagePrediction> {
   let stage: FailureStage = 'decode'
   try {
-    const image = await decodeCalibrationJpeg(blob)
+    const image = await decodeJpeg(blob)
     const intrinsics = approximateCameraIntrinsics(image.cols, image.rows)
     stage = 'landmarker'
     const landmarker = await getLandmarker()

@@ -79,7 +79,7 @@ export function HomeScreen({ calibration, calibrationTask, onStartValidation, on
       </section>
 
       <p className="home-note">
-        Calibration uses your webcam. Images and parameters are saved in this browser on this device and are never uploaded. Clear calibration deletes the saved record.
+        Calibration uses your webcam. Images are processed in memory and are never uploaded or saved. Calibration parameters are saved in this browser on this device. Clear calibration deletes the saved record.
       </p>
       <div className="home-theme">
         <button

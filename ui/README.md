@@ -67,12 +67,15 @@ src/
     process.ts       sequential inference, coverage/variation checks, fitting
     record.ts        versioned calibration metadata and validation
     storage.ts       atomic IndexedDB save, restore, and clear
-    cameraMetadata.ts  capture identity and camera compatibility checks
-    viewport.ts      shared capture/window size checks
+    compatibility.ts  checks whether a calibration matches the current frame
+    viewport.ts      checks the viewport recorded with calibration samples
   gaze/
     GazeCrosshair.tsx  overlay for the displayed gameplay gaze
     kalman.ts         Kalman smoothing of per-frame gaze predictions
   vision/             the model's image preprocessing, ported to the browser
+    camera.ts         camera settings, verification, and approximate intrinsics
+    viewport.ts       current window dimensions and size comparison
+    jpeg.ts           decode JPEG blobs into RGB pixels
     cv.ts             thin wrappers over @techstark/opencv-js (see below)
     utils.ts          port of model/src/data/utils.py, steps 2-5 + tensors
     model.ts          GazeNet inference via onnxruntime-web (see below)
@@ -187,9 +190,11 @@ bottom.
 Each `CalibrationSample` holds the full webcam frame as a JPEG `Blob`, the
 target as normalized `(x, y)` in `[0, 1]` with `(0, 0)` at the top-left, the
 target index, the viewport size, and a timestamp. This is the same label space
-the gaze model predicts in. JPEGs, prediction/drop outcomes, frame
-counts, fit parameters, lambda, and model/camera/capture metadata are stored
-locally in IndexedDB. They are never uploaded.
+the gaze model predicts in. Captured images and per-frame results are only
+held in memory during processing. IndexedDB stores the fitted correction,
+camera and window information, completion time, and valid-frame counts.
+Nothing is uploaded. Updating from the earlier image-storing format clears
+the old record; calibrate again once after this update.
 
 Full screen is best effort: if the browser refuses, calibration runs windowed
 with a notice to keep its size and position unchanged. Changing size or
@@ -201,7 +206,7 @@ full-screen mode during capture discards the run; go back and restart.
   opening the camera. Select **Verify saved camera** to compare device,
   facing mode, and image dimensions; unknown or changed settings need recalibration.
 - **Recalibrate** saves a replacement. **Clear calibration** deletes the
-  JPEGs and fit. Failed writes or clears preserve the previous record;
+  saved correction and metadata. Failed writes or clears preserve the previous record;
   corrupt or incompatible records are not activated.
 - Recalibrate after changing posture, screen/window placement, or lighting.
   Matching metadata cannot verify those conditions. Calibration and gameplay
@@ -209,7 +214,8 @@ full-screen mode during capture discards the run; go back and restart.
 
 ## Gameplay
 
-Open **Maze** to request full screen before starting live prediction. A verified fit corrects each prediction
+Open **Maze**, allow camera access, then click **Start game** to enter full screen
+and start live prediction. A verified fit corrects each prediction
 once when the camera and frame dimensions match. Otherwise, gameplay skips the
 personal correction and reports when verification or recalibration is needed.
 Both paths pass through Kalman smoothing before updating the crosshair and movement.

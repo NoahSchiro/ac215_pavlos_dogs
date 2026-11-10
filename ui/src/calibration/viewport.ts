@@ -1,14 +1,5 @@
 import type { CalibrationResult } from './points'
-
-export interface Viewport { width: number; height: number }
-
-export function currentViewport(): Viewport {
-  return { width: window.innerWidth, height: window.innerHeight }
-}
-
-export function sameViewport(expected: Viewport | null, actual: Viewport | null): boolean {
-  return !!expected && !!actual && expected.width === actual.width && expected.height === actual.height
-}
+import type { Viewport } from '../vision/viewport'
 
 /** Reuse existing sample metadata; mixed layouts cannot define one correction. */
 export function captureViewport(capture: CalibrationResult): Viewport | null {

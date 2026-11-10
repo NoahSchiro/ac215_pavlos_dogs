@@ -1,11 +1,12 @@
-import { calibrationMatchesFrame, type CaptureCamera } from '../calibration/cameraMetadata'
+import { calibrationMatchesFrame } from '../calibration/compatibility'
+import type { CaptureCamera } from '../vision/camera'
 import type { CalibrationSession } from '../calibration/record'
 import { applyCalibration } from '../calibration/ridge'
 import type { ScreenFraction } from '../vision/model'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
-// Preserve PR #68's center dead zone, dominant-axis rule, and tie behavior.
+// Use the dominant axis outside the center dead zone; ties use the vertical axis.
 export function gazeToDirection(x: number, y: number): Direction | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
   if (x < 0 || x > 1 || y < 0 || y > 1) return null

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CAMERA_CONSTRAINTS } from './cameraMetadata'
+import { CAMERA_CONSTRAINTS } from '../vision/camera'
 
 export type CameraStatus =
   | 'idle'

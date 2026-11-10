@@ -61,13 +61,12 @@ test('reports worse correction without clipping the accuracy metric', async () =
   expect(summary.correctedMeanError).toBeCloseTo(2, 12)
 })
 
-test.each(['pending', 'camera', 'old', 'target', 'reused'] as const)('rejects invalid validation input before inference: %s', async (kind) => {
+test.each(['pending', 'camera', 'old', 'target'] as const)('rejects invalid validation input before inference: %s', async (kind) => {
   const session = testSession()
   const images = capture()
   const samples = [...images.samples]
   if (kind === 'old') samples[0] = { ...samples[0], timestamp: 1 }
   if (kind === 'target') samples[0] = { ...samples[0], target: { x: 0.1, y: 0.1 } }
-  if (kind === 'reused') samples[0] = { ...samples[0], image: session.record.calibration.capture.samples[0].image }
   await expect(validateCalibrationCapture({ ...images, samples,
     camera: { ...TEST_CAMERA, deviceId: kind === 'camera' ? 'other' : TEST_CAMERA.deviceId },
   }, { ...session, cameraVerification: kind === 'pending' ? 'pending' : 'verified' })).rejects.toThrow(/camera|fresh|target/i)

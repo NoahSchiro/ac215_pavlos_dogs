@@ -1,7 +1,7 @@
-import type { ImageArray } from '../vision/utils'
+import type { ImageArray } from './utils'
 
 /** Decode a captured JPEG at its original dimensions, without mirroring. */
-export async function decodeCalibrationJpeg(blob: Blob): Promise<ImageArray> {
+export async function decodeJpeg(blob: Blob): Promise<ImageArray> {
   const bitmap = await createImageBitmap(blob)
   let canvas: HTMLCanvasElement | undefined
   try {

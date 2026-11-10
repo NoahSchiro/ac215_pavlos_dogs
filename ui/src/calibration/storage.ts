@@ -12,10 +12,12 @@ export type CalibrationLoadResult =
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!globalThis.indexedDB) { reject(new Error('IndexedDB storage is unavailable.')); return }
-    const request = indexedDB.open(CALIBRATION_DB_NAME, 1)
+    const request = indexedDB.open(CALIBRATION_DB_NAME, 2)
     let blocked = false
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(CALIBRATION_STORE)) request.result.createObjectStore(CALIBRATION_STORE)
+      // Version 1 records contain photos; discard them when upgrading to compact records.
+      else request.transaction!.objectStore(CALIBRATION_STORE).clear()
     }
     request.onblocked = () => { blocked = true; reject(new Error('Calibration storage is blocked by another open page. Close it and retry.')) }
     request.onerror = () => reject(request.error ?? new Error('Could not open calibration storage.'))

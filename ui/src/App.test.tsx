@@ -4,12 +4,12 @@ import App from './App'
 import { CALIBRATION_POINTS, VALIDATION_POINTS, type CalibrationResult } from './calibration/points'
 import { predictCalibrationImage, type CalibrationImagePrediction } from './calibration/inference'
 import { loadCalibration, saveCalibration, clearCalibration } from './calibration/storage'
-import { verifyCaptureCamera } from './calibration/cameraMetadata'
+import { verifyCaptureCamera } from './vision/camera'
 import { testSession } from './calibration/fixtures/testSession'
 
 vi.mock('./calibration/storage', () => ({ loadCalibration: vi.fn(), saveCalibration: vi.fn(), clearCalibration: vi.fn() }))
-vi.mock('./calibration/cameraMetadata', async (importOriginal) => ({
-  ...await importOriginal<typeof import('./calibration/cameraMetadata')>(), verifyCaptureCamera: vi.fn(),
+vi.mock('./vision/camera', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./vision/camera')>(), verifyCaptureCamera: vi.fn(),
 }))
 
 // Keep the real processing and ridge functions; mock the browser/WASM boundary.
@@ -88,30 +88,26 @@ function validationCapture(): CalibrationResult {
     targetByImage.set(image, { x: 1 - target.x, y: target.y })
     return { image, target, pointIndex, timestamp: 10, viewportWidth: 800, viewportHeight: 600 }
   }))
-  return { samples, completedAt: 20, camera: testSession().record.calibration.capture.camera }
+  return { samples, completedAt: 20, camera: testSession().record.calibration.camera }
 }
 
 describe('App', () => {
-  it('waits for the fullscreen request before opening the maze', async () => {
-    let finish!: () => void
-    requestFullscreen.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve }))
+  it('opens the maze camera screen without requesting fullscreen before permission', async () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
-    expect(requestFullscreen).toHaveBeenCalledOnce()
-    expect(screen.queryByRole('group', { name: 'Maze' })).not.toBeInTheDocument()
-    await act(async () => finish())
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Maze/ })) })
+    expect(requestFullscreen).not.toHaveBeenCalled()
     expect(screen.getByRole('group', { name: 'Maze' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start game' })).toBeDisabled()
   })
 
-  it('ignores a delayed maze entry after the user starts calibration instead', async () => {
-    let finish!: () => void
-    requestFullscreen.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve }))
+  it('can return from maze setup and start calibration without requesting fullscreen', async () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Maze/ })) })
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Home' }))
     fireEvent.click(screen.getByRole('button', { name: /^Calibration/ }))
-    await act(async () => finish())
     expect(screen.getByTestId('calibration-screen')).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Maze' })).not.toBeInTheDocument()
+    expect(requestFullscreen).not.toHaveBeenCalled()
   })
 
   it('opens a simple four-point check and displays paired errors without saving another fit', async () => {
@@ -184,6 +180,9 @@ describe('App', () => {
     expect(exitFullscreen).toHaveBeenCalledTimes(1)
     expect(await screen.findByText(/Calibration ready. 27 of 27 frames used/)).toBeInTheDocument()
     expect(predict).toHaveBeenCalledTimes(27)
+    const saved = vi.mocked(saveCalibration).mock.calls[0][0]
+    expect(saved.calibration).not.toHaveProperty('capture')
+    expect(saved.calibration).not.toHaveProperty('frames')
     expect(screen.getByRole('button', { name: /^Recalibrate/ })).toBeInTheDocument()
   })
 

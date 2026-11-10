@@ -4,7 +4,6 @@ import { exitFullscreen } from './fullscreen'
 import type { CalibrationResult } from './points'
 import type { CalibrationSession } from './record'
 import { validateCalibrationCapture, type ValidationSummary } from './validation'
-import { captureViewport } from './viewport'
 
 type State = { status: 'capture' } | { status: 'processing'; completed: number }
   | { status: 'done'; summary: ValidationSummary } | { status: 'error'; message: string }
@@ -38,7 +37,7 @@ export function AccuracyCheck({ session, onBack }: { session: CalibrationSession
   }
 
   if (state.status === 'capture') {
-    return <Calibration mode="validation" expectedViewport={captureViewport(session.record.calibration.capture)}
+    return <Calibration mode="validation" expectedViewport={session.record.calibration.viewport}
       onComplete={(capture) => { void score(capture) }} onCancel={leave} />
   }
   return (

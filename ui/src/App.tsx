@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Calibration } from './calibration/Calibration'
 import { AccuracyCheck } from './calibration/AccuracyCheck'
-import { enterFullscreen, exitFullscreen } from './calibration/fullscreen'
+import { exitFullscreen } from './calibration/fullscreen'
 import type { CalibrationResult } from './calibration/points'
 import { processCalibration, type CalibrationTaskState } from './calibration/process'
 import { createCalibrationRecord, type CalibrationRecord, type CalibrationSession } from './calibration/record'
 import { clearCalibration, loadCalibration, saveCalibration } from './calibration/storage'
-import { verifyCaptureCamera } from './calibration/cameraMetadata'
+import { verifyCaptureCamera } from './vision/camera'
 import { HomeScreen } from './home/HomeScreen'
 import { MazeScreen } from './maze/MazeScreen'
 
@@ -120,10 +120,8 @@ function App() {
     setCalibrationTask({ status: 'cancelled' })
   }, [invalidateTask])
 
-  const startMaze = useCallback(async () => {
-    const taskId = invalidateTask()
-    await enterFullscreen()
-    if (taskId !== taskIdRef.current) return
+  const startMaze = useCallback(() => {
+    invalidateTask()
     setCalibrationTask({ status: 'idle' })
     setView('maze')
   }, [invalidateTask])
@@ -147,7 +145,7 @@ function App() {
   }, [invalidateTask])
 
   const verifySavedCamera = useCallback(async () => {
-    const camera = calibration?.record.calibration.capture.camera
+    const camera = calibration?.record.calibration.camera
     if (!camera) return
     const taskId = invalidateTask()
     const controller = new AbortController()
@@ -196,7 +194,7 @@ function App() {
           onCancelProcessing={cancelProcessing}
           onClearCalibration={() => { void clearSavedCalibration() }}
           onVerifyCamera={() => { void verifySavedCamera() }}
-          onStartMaze={() => { void startMaze() }}
+          onStartMaze={startMaze}
           onStartCalibration={startCalibration}
           theme={theme}
           onToggleTheme={() =>

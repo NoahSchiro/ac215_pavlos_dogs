@@ -1,9 +1,10 @@
 import { FRAMES_PER_POINT, VALIDATION_POINTS, type CalibrationResult } from './points'
 import type { CalibrationSession } from './record'
-import { calibrationMatchesFrame } from './cameraMetadata'
+import { calibrationMatchesFrame } from './compatibility'
 import { predictCalibrationImage } from './inference'
 import { applyCalibration } from './ridge'
-import { captureViewport, sameViewport } from './viewport'
+import { captureViewport } from './viewport'
+import { sameViewport } from '../vision/viewport'
 
 export interface ValidationSummary {
   rawMeanError: number
@@ -22,8 +23,8 @@ export async function validateCalibrationCapture(
   if (!camera || !calibrationMatchesFrame(session, camera, { cols: camera.width, rows: camera.height })) {
     throw new Error('Verify the matching camera or recalibrate before checking accuracy.')
   }
-  const training = session.record.calibration.capture
-  if (!sameViewport(captureViewport(training), captureViewport(capture))) {
+  const training = session.record.calibration
+  if (!sameViewport(training.viewport, captureViewport(capture))) {
     throw new Error('Validation window size does not match calibration. Restore the original window size or recalibrate.')
   }
   if (capture.samples.length !== VALIDATION_POINTS.length * FRAMES_PER_POINT ||
@@ -34,8 +35,7 @@ export async function validateCalibrationCapture(
   for (const sample of capture.samples) {
     const target = VALIDATION_POINTS[sample.pointIndex]
     if (!Number.isInteger(sample.pointIndex) || !target || sample.target.x !== target.x || sample.target.y !== target.y ||
-        !Number.isFinite(sample.timestamp) || sample.timestamp <= training.completedAt || sample.timestamp > capture.completedAt ||
-        training.samples.some(({ image }) => image === sample.image)) {
+        !Number.isFinite(sample.timestamp) || sample.timestamp <= training.completedAt || sample.timestamp > capture.completedAt) {
       throw new Error('Use fresh images at the fixed validation targets, not fitting frames.')
     }
     capturedCounts[sample.pointIndex]++
