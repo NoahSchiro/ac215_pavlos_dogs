@@ -10,12 +10,11 @@ import {
 } from './gazeCapture'
 import Maze from './Maze'
 import { GazeKalmanFilter } from '../gaze/kalman'
+import { GAZE_PREDICTION_INTERVAL_MS, GAZE_SMOOTHING } from '../config'
 
 interface Props {
   onBack: () => void
 }
-
-const PREDICTION_INTERVAL = 200
 
 export function MazeScreen({ onBack }: Props) {
   const camera = useCamera()
@@ -61,7 +60,7 @@ export function MazeScreen({ onBack }: Props) {
         ])
 
         if (cancelled) return
-        const kf = new GazeKalmanFilter()
+        const kf = new GazeKalmanFilter(GAZE_SMOOTHING)
         setGazeStatus('Tracking gaze')
 
         async function predict() {
@@ -107,7 +106,7 @@ export function MazeScreen({ onBack }: Props) {
           }
 
           if (!cancelled) {
-            timer = setTimeout(() => void predict(), PREDICTION_INTERVAL)
+            timer = setTimeout(() => void predict(), GAZE_PREDICTION_INTERVAL_MS)
           }
         }
 
