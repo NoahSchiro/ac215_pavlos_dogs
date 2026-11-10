@@ -51,11 +51,9 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
   })()
   return cached
 }
- * Game settings in one place.
- *
- * Change these values to tune the maze and gaze controls without hunting
- * through the components that use them.
- */
+
+
+/** Game settings */
 
 /** Maze size, in cells. */
 export const MAZE_ROWS = 15
