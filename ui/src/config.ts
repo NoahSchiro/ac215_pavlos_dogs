@@ -42,3 +42,10 @@ export const CROSSHAIR_GLIDE_MS = 450
 
 /** Crosshair opacity, from 0 (invisible) to 1 (solid). */
 export const CROSSHAIR_OPACITY = 0.55
+
+/**
+ * Address of the race backend (FastAPI). Set VITE_RACE_SERVER_URL when building
+ * for production; defaults to a backend running locally on port 8000.
+ */
+export const RACE_SERVER_URL: string =
+  (import.meta.env.VITE_RACE_SERVER_URL as string | undefined) ?? 'http://localhost:8000'

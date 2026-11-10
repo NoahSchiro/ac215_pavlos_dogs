@@ -4,8 +4,9 @@ import { exitFullscreen } from './calibration/fullscreen'
 import type { CalibrationResult } from './calibration/points'
 import { HomeScreen } from './home/HomeScreen'
 import { MazeScreen } from './maze/MazeScreen'
+import { RaceScreen } from './race/RaceScreen'
 
-type View = 'home' | 'maze' | 'calibration'
+type View = 'home' | 'maze' | 'race' | 'calibration'
 
 function App() {
   // Theme controls the appearance.
@@ -53,10 +54,13 @@ function App() {
     <>
       {view === 'maze' ? (
         <MazeScreen onBack={goHome} />
+      ) : view === 'race' ? (
+        <RaceScreen onBack={goHome} />
       ) : (
         <HomeScreen
           calibration={calibration}
           onStartMaze={() => setView('maze')}
+          onStartRace={() => setView('race')}
           onStartCalibration={startCalibration}
           theme={theme}
           onToggleTheme={() =>

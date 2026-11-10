@@ -35,3 +35,14 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+
+  # Multiplayer race server (FastAPI + WebSockets). The UI's default
+  # VITE_RACE_SERVER_URL is http://localhost:8000, so publishing it on 8000
+  # lets the browser reach it with no extra configuration.
+  race-server:
+    build:
+      context: ./race_server
+    image: race-server:latest
+    ports:
+      - "8000:8080"
+    restart: unless-stopped

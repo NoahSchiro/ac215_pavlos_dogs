@@ -37,6 +37,16 @@ uv run train.py
 
 To see what options exist, run: `uv run train.py --help`
 
+## Race server
+
+`./race_server/`
+
+A FastAPI + WebSocket server for two-player races (same maze, your opponent shows up as a ghost, first to the cheese wins). The gaze model itself runs in the browser; this backend is our TF-approved replacement for the MS3 prediction-API requirement. See [race_server/README.md](./race_server/README.md) for the API, tests, Cloud Run deployment, and monitoring.
+
+```bash
+cd race_server && uv sync && uv run uvicorn app.main:app --port 8000
+```
+
 ## Web UI
 
 `./ui/`
