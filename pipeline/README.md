@@ -141,6 +141,14 @@ Four places, in increasing detail:
 
 ## Resource requests
 
+DataLoader workers pass batches through `/dev/shm`, which the pipeline can't
+size: Docker's default is 64 MB, and running out kills training mid-epoch
+with a misleading "No space left on device". The train step measures
+`/dev/shm` first. Below 1 GB it runs with `--workers 0`, loading data in the
+main process: slower, but needing no shared memory. The decision is the
+first line of the step's log. (`set_sharing_strategy("file_system")` doesn't
+help here; it changes how segments are named, not where they live.)
+
 Training asks for 32 GB and 8 CPU. The dataloader passes 224x224 crops between
 worker processes through shared memory, which is what made the local runs thrash;
 requesting the memory explicitly is what keeps that from recurring on Vertex.

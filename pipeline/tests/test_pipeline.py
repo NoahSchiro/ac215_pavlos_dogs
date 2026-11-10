@@ -188,7 +188,9 @@ def test_models_bucket_defaults_as_setup_gcp_creates_it() -> None:
     assert models_bucket_name("gs://other-bucket/", "my-proj") == "other-bucket"
 
 
-def train(tmp_path: Path, project: str, key: str | None) -> tuple[int, str, str]:
+def train(
+    tmp_path: Path, project: str, key: str | None, shm: Path | None = None
+) -> tuple[int, str, str]:
     """Run the train step's wrapper with a fake `uv` that records how it ran."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -202,6 +204,9 @@ def train(tmp_path: Path, project: str, key: str | None) -> tuple[int, str, str]
         key_file.write_text(key)
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
     env.pop("WANDB_API_KEY", None)
+    # Default to a roomy /dev/shm (any real directory on this disk); tests that
+    # care pass their own.
+    env["SHM_DIR"] = str(shm if shm is not None else tmp_path)
     result = subprocess.run(
         ["bash", "-c", _TRAIN_SH, str(key_file), project, "--epochs", "2"],
         env=env,
@@ -231,3 +236,16 @@ def test_train_without_a_wandb_project_skips_wandb(tmp_path: Path) -> None:
     assert code == 0
     assert "argv=run train.py --epochs 2" in out
     assert "--wandb" not in out
+
+
+def test_train_keeps_parallel_loading_with_a_large_dev_shm(tmp_path: Path) -> None:
+    code, out, _ = train(tmp_path, "", key=None)
+    assert code == 0
+    assert "keeping parallel data loading" in out
+    assert "--workers" not in out
+
+
+def test_train_loads_in_process_without_a_usable_dev_shm(tmp_path: Path) -> None:
+    code, out, _ = train(tmp_path, "gaze", key="k", shm=tmp_path / "missing")
+    assert code == 0
+    assert "argv=run train.py --wandb gaze --epochs 2 --workers 0" in out

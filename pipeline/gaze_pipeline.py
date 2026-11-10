@@ -46,8 +46,25 @@ cat "$1"
 
 _TRAIN_SH = """set -euo pipefail
 key_file="$0"; project="$1"; shift  # $0 is the key file, so only $1 shifts off
+
+# DataLoader workers hand batches to the trainer through /dev/shm. Containers
+# often get a small one (Docker's default is 64MB), and running out of it
+# kills training mid-epoch with "No space left on device". Measure it, and
+# below 1GB load data in the main process instead (slower, but needs none).
+shm="${SHM_DIR:-/dev/shm}"
+shm_kb="$(df -Pk "$shm" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f2 || true)"
+workers=""
+case "$shm_kb" in
+  ''|*[!0-9]*) workers="--workers 0"; echo "no usable $shm: --workers 0" ;;
+  *) if [ "$shm_kb" -lt 1048576 ]; then
+       workers="--workers 0"; echo "$shm is only ${shm_kb}KB: --workers 0"
+     else
+       echo "$shm is ${shm_kb}KB: keeping parallel data loading"
+     fi ;;
+esac
+
 if [ -z "$project" ]; then
-  exec uv run train.py "$@"
+  exec uv run train.py "$@" $workers
 fi
 if [ ! -s "$key_file" ]; then
   echo "W&B project '$project' requested but there is no API key at $key_file" >&2
@@ -56,7 +73,7 @@ if [ ! -s "$key_file" ]; then
 fi
 WANDB_API_KEY="$(cat "$key_file")"
 export WANDB_API_KEY
-exec uv run train.py --wandb "$project" "$@"
+exec uv run train.py --wandb "$project" "$@" $workers
 """
 
 _PUBLISH_SH = """set -euo pipefail
