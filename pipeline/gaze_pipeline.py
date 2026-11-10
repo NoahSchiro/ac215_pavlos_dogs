@@ -44,6 +44,21 @@ cat "$1"
 """
 
 
+_TRAIN_SH = """set -euo pipefail
+key_file="$0"; project="$1"; shift  # $0 is the key file, so only $1 shifts off
+if [ -z "$project" ]; then
+  exec uv run train.py "$@"
+fi
+if [ ! -s "$key_file" ]; then
+  echo "W&B project '$project' requested but there is no API key at $key_file" >&2
+  echo "(upload one with: gcloud storage cp <file> gs://${key_file#/gcs/})" >&2
+  exit 1
+fi
+WANDB_API_KEY="$(cat "$key_file")"
+export WANDB_API_KEY
+exec uv run train.py --wandb "$project" "$@"
+"""
+
 _PUBLISH_SH = """set -euo pipefail
 checkpoints="$0"; bucket="$1"; out="$2"
 root="${GCS_MOUNT:-/gcs}/$bucket"
@@ -94,12 +109,23 @@ def train_op(
     val_participant: int,
     test_participant: int,
     wandb_project: str,
+    wandb_key_path: str,
 ):
-    """Run train.py. Flags map one-to-one, so the CLI stays the source of truth."""
+    """Run train.py. Flags map one-to-one, so the CLI stays the source of truth.
+
+    W&B needs an API key, and a Vertex container has no `wandb login`. The key
+    is read at runtime from a file in the private data bucket rather than
+    passed as a parameter, because parameters are stored in the pipeline spec
+    and shown in the Vertex console. A requested project with no key fails
+    before training starts, not after. An empty wandb_project skips W&B.
+    """
     return dsl.ContainerSpec(
         image=IMAGE,
-        command=["uv", "run", "train.py"],
+        command=["bash", "-c"],
         args=[
+            _TRAIN_SH,
+            wandb_key_path,
+            wandb_project,
             "--data-root",
             data_root,
             "--checkpoint-dir",
@@ -110,8 +136,6 @@ def train_op(
             val_participant,
             "--test",
             test_participant,
-            "--wandb",
-            wandb_project,
             # `auto` picks cuda on an accelerator machine type, cpu otherwise.
             "--device",
             "auto",
@@ -168,7 +192,8 @@ def gaze_pipeline(
     epochs: int = 10,
     val_participant: int = 13,
     test_participant: int = 14,
-    wandb_project: str = "gaze-maze",
+    wandb_project: str = "gaze",
+    wandb_key_path: str = "/gcs/ac215-gaze-data-rh/secrets/wandb_api_key",
     models_bucket: str = "ac215-gaze-models",
 ) -> None:
     preprocess = preprocess_op(data_root=data_root)
@@ -181,6 +206,7 @@ def gaze_pipeline(
         val_participant=val_participant,
         test_participant=test_participant,
         wandb_project=wandb_project,
+        wandb_key_path=wandb_key_path,
     )
     train.after(preprocess)
     train.set_display_name("train")

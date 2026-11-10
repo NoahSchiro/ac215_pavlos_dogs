@@ -34,7 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--val", type=int, default=13)
     parser.add_argument("--test", type=int, default=14)
-    parser.add_argument("--wandb-project", default="gaze-maze")
+    parser.add_argument(
+        "--wandb-project",
+        default="gaze",
+        help="W&B project to log to (the team's is `gaze`); '' to skip W&B",
+    )
     parser.add_argument(
         "--models-bucket",
         help="public bucket the trained model is published to for the UI;"
@@ -63,7 +67,7 @@ def main() -> None:
 
     from kfp import compiler
 
-    from gaze_pipeline import IMAGE, gaze_pipeline
+    from gaze_pipeline import IMAGE, gaze_pipeline, gcs_mount
 
     compiler.Compiler().compile(gaze_pipeline, str(SPEC_PATH))
     print(f"compiled {SPEC_PATH} using image {IMAGE}")
@@ -95,6 +99,7 @@ def main() -> None:
             "val_participant": args.val,
             "test_participant": args.test,
             "wandb_project": args.wandb_project,
+            "wandb_key_path": f"{gcs_mount(args.bucket)}/secrets/wandb_api_key",
             "models_bucket": models_bucket_name(args.models_bucket, args.project),
         },
         enable_caching=True,

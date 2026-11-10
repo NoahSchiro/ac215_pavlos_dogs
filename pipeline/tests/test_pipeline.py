@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from kfp import compiler
 
-from gaze_pipeline import _PUBLISH_SH, IMAGE, gaze_pipeline, gcs_mount
+from gaze_pipeline import _PUBLISH_SH, _TRAIN_SH, IMAGE, gaze_pipeline, gcs_mount
 from submit import models_bucket_name
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,11 +54,19 @@ def test_every_step_uses_the_repository_image(spec: dict) -> None:
 
 def test_training_flags_mirror_the_cli(spec: dict) -> None:
     executor = spec["deploymentSpec"]["executors"]["exec-train-op"]["container"]
-    assert executor["command"] == ["uv", "run", "train.py"]
+    assert executor["command"] == ["bash", "-c"]
+    assert executor["args"][0] == _TRAIN_SH
     flags = [a for a in executor["args"] if isinstance(a, str) and a.startswith("--")]
     assert {"--data-root", "--checkpoint-dir", "--epochs", "--val", "--test"} <= set(
         flags
     )
+
+
+def test_wandb_key_never_enters_the_pipeline_spec(spec: dict) -> None:
+    """Only the key's path is a parameter; the spec is visible in the console."""
+    params = spec["root"]["inputDefinitions"]["parameters"]
+    assert params["wandb_key_path"]["defaultValue"].startswith("/gcs/")
+    assert "WANDB_API_KEY" not in json.dumps(spec["root"])
 
 
 def test_pipeline_parameters_have_defaults(spec: dict) -> None:
@@ -178,3 +186,48 @@ def test_publish_fails_when_training_left_no_onnx(tmp_path: Path) -> None:
 def test_models_bucket_defaults_as_setup_gcp_creates_it() -> None:
     assert models_bucket_name(None, "my-proj") == "my-proj-gaze-models"
     assert models_bucket_name("gs://other-bucket/", "my-proj") == "other-bucket"
+
+
+def train(tmp_path: Path, project: str, key: str | None) -> tuple[int, str, str]:
+    """Run the train step's wrapper with a fake `uv` that records how it ran."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(
+        '#!/bin/sh\necho "argv=$*"\necho "key=${WANDB_API_KEY:-<unset>}"\n'
+    )
+    fake_uv.chmod(0o755)
+    key_file = tmp_path / "wandb_api_key"
+    if key is not None:
+        key_file.write_text(key)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    env.pop("WANDB_API_KEY", None)
+    result = subprocess.run(
+        ["bash", "-c", _TRAIN_SH, str(key_file), project, "--epochs", "2"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,  # the tests assert on failures too
+    )
+    return result.returncode, result.stdout, result.stderr
+
+
+def test_train_logs_to_wandb_with_the_key_from_the_bucket(tmp_path: Path) -> None:
+    code, out, _ = train(tmp_path, "gaze", key="secret-key")
+    assert code == 0
+    assert "argv=run train.py --wandb gaze --epochs 2" in out
+    assert "key=secret-key" in out
+
+
+def test_train_fails_fast_when_wandb_has_no_key(tmp_path: Path) -> None:
+    code, out, err = train(tmp_path, "gaze", key=None)
+    assert code != 0
+    assert "no API key" in err
+    assert "argv=" not in out  # training never started
+
+
+def test_train_without_a_wandb_project_skips_wandb(tmp_path: Path) -> None:
+    code, out, _ = train(tmp_path, "", key=None)
+    assert code == 0
+    assert "argv=run train.py --epochs 2" in out
+    assert "--wandb" not in out

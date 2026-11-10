@@ -77,6 +77,22 @@ cd pipeline
 uv run submit.py --project $PROJECT --image $IMAGE --epochs 24
 ```
 
+**W&B on Vertex.** Training logs to the team's W&B project (`gaze`, under
+`noahschiro-harvard-university`). A Vertex container can't `wandb login`, so
+the train step reads the API key from the private data bucket at runtime:
+
+```bash
+# once; the key must belong to a member of the W&B team
+printf %s "<your W&B API key>" > /tmp/wandb_api_key
+gcloud storage cp /tmp/wandb_api_key gs://ac215-gaze-data-rh/secrets/wandb_api_key
+rm /tmp/wandb_api_key
+```
+
+The key never becomes a pipeline parameter, because parameters are stored
+in the run's spec and shown in the Vertex console. If the key is missing, the
+step fails before training starts. Pass `--wandb-project ''` to train without
+W&B.
+
 The model is published to `--models-bucket`, which defaults to
 `<project>-gaze-models`, the public bucket `deploy/setup-gcp.sh` creates. The
 URL appears as the `model_url` output of the publish step in the run graph and
