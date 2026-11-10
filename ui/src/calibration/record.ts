@@ -5,7 +5,11 @@ import type { CaptureCamera } from '../vision/camera'
 import type { Viewport } from '../vision/viewport'
 import { captureViewport } from './viewport'
 
-// A saved correction depends on the model outputs used during calibration.
+// modelId identifies the shipped ONNX weights by their Git LFS SHA-256.
+// Update modelId when replacing those weights; the loader does not compute it.
+// Changes to training code alone do not require a new calibration.
+// Change the coordinate convention versions only with a coordinated pipeline
+// update that preserves Python/TypeScript preprocessing parity.
 export const CALIBRATION_COMPATIBILITY = {
   modelId: 'sha256:c4a11ab96dc64766cd1abd622838b50b297aaec4adf4f25ebf71cf0b66bcbee6',
   preprocessingVersion: 1,
