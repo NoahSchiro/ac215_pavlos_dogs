@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { generateMaze } from './mazeGenerator'
 import type { MazePosition } from './mazeGenerator'
+import {
+  GAZE_MOVE_INTERVAL_MS,
+  KEYBOARD_MOVE_INTERVAL_MS,
+  MAZE_COLS,
+  MAZE_ROWS,
+  PLAYER_SIZE_PERCENT,
+} from '../config'
 import './Maze.css'
 
-const ROWS = 15
-const COLS = 15
-const MOVE_INTERVAL = 160
+const ROWS = MAZE_ROWS
+const COLS = MAZE_COLS
 
 type Direction = 'up' | 'down' | 'left' | 'right'
 
@@ -40,7 +46,11 @@ function randomPositions(): {
   return { player, cheese }
 }
 
-export default function Maze() {
+interface MazeProps {
+  gazeDirection?: 'up' | 'down' | 'left' | 'right' | null
+}
+
+export default function Maze({ gazeDirection = null }: MazeProps) {
   // Generate the maze and starting positions together.
   const [game, setGame] = useState(() => {
     const positions = randomPositions()
@@ -150,7 +160,7 @@ export default function Maze() {
       activeKey = event.key
 
       movePlayer(direction)
-      timer = setInterval(() => movePlayer(direction), MOVE_INTERVAL)
+      timer = setInterval(() => movePlayer(direction), KEYBOARD_MOVE_INTERVAL_MS)
     }
 
     function handleKeyUp(event: KeyboardEvent) {
@@ -174,6 +184,20 @@ export default function Maze() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [movePlayer])
+
+
+  // Move Pavlos using gaze predictions.
+useEffect(() => {
+  if (!gazeDirection) return
+
+  movePlayer(gazeDirection)
+
+  const timer = setInterval(() => {
+    movePlayer(gazeDirection)
+  }, GAZE_MOVE_INTERVAL_MS)
+
+  return () => clearInterval(timer)
+}, [gazeDirection, movePlayer])
 
   // Winning depends on the cheese's randomized position.
   const hasWon = player.row === cheese.row && player.col === cheese.col
@@ -257,8 +281,8 @@ export default function Maze() {
           style={{
             left: `${((player.col + 0.5) / COLS) * 100}%`,
             top: `${((player.row + 0.5) / ROWS) * 100}%`,
-            width: `${75 / COLS}%`,
-            height: `${75 / ROWS}%`,
+            width: `${PLAYER_SIZE_PERCENT / COLS}%`,
+            height: `${PLAYER_SIZE_PERCENT / ROWS}%`,
           }}
         >
           <img

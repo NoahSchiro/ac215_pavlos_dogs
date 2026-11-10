@@ -59,6 +59,8 @@ src/
     Calibration.tsx   the calibration screen
     fullscreen.ts     best-effort enter/exit full screen
     Crosshair.tsx     target marker
+  gaze/
+    kalman.ts         Kalman smoothing of per-frame gaze predictions
   vision/             the model's image preprocessing, ported to the browser
     cv.ts             thin wrappers over @techstark/opencv-js (see below)
     utils.ts          port of model/src/data/utils.py, steps 2-5 + tensors
@@ -125,6 +127,23 @@ The public API mirrors the preprocessing pipeline:
 
 Predictions are sigmoid-activated fractions of the screen — the same label
 space `transformLabel` records calibration targets in.
+
+## Gaze smoothing
+
+`src/gaze/kalman.ts` smooths the per-frame `predictGaze` output with a
+constant-velocity Kalman filter (independent x/y axes, variable frame timing).
+Feed it every frame, passing `null` when `predictGaze` returns a `DropReason`:
+
+```ts
+const kf = new GazeKalmanFilter()
+const raw = await predictGaze(landmarker, model, image, intrinsics)
+const gaze = kf.update(typeof raw === 'string' ? null : raw, performance.now())
+```
+
+A single far-off prediction is gated out as an outlier; two in a row are
+treated as a saccade and the filter jumps to the new point. Tune
+`measurementStd` (R) and `accelerationStd` (Q): higher R or lower Q gives
+smoother but slower output.
 
 ## Calibration
 
