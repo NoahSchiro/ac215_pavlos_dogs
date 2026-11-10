@@ -6,6 +6,7 @@ import { TEST_CAMERA, testSession } from '../calibration/fixtures/testSession'
 import { getLandmarker } from '../vision/utils'
 import { loadGazeModel, predictGaze } from '../vision/model'
 import { GazeKalmanFilter } from '../gaze/kalman'
+import { GAZE_PREDICTION_INTERVAL_MS, GAZE_SMOOTHING } from '../config'
 
 vi.mock('../calibration/useCamera', () => ({ useCamera: vi.fn() }))
 vi.mock('../vision/utils', () => ({ getLandmarker: vi.fn() }))
@@ -136,23 +137,23 @@ test.each(['face_not_detected', 'pose_failed', 'throw', 'non-finite', 'not-ready
   else if (reason === 'non-finite') vi.mocked(predictGaze).mockResolvedValueOnce({ x: NaN, y: 0.5 })
   else if (reason === 'not-ready') vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(0)
   else vi.mocked(predictGaze).mockResolvedValueOnce(reason)
-  await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(GAZE_PREDICTION_INTERVAL_MS) })
   expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
   expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()
 })
 
 test.each([true, false])('uses the same Kalman output for crosshair and movement (calibrated: %s)', async (calibrated) => {
-  const filter = new GazeKalmanFilter()
+  const filter = new GazeKalmanFilter(GAZE_SMOOTHING)
   const first = { x: calibrated ? 0.8 : 0.2, y: 0.5 }
   const second = { x: calibrated ? 0.6 : 0.35, y: 0.5 }
   const time = performance.now()
   filter.update(first, time)
-  const expected = filter.update(second, time + 200)!
+  const expected = filter.update(second, time + GAZE_PREDICTION_INTERVAL_MS)!
   vi.mocked(predictGaze).mockResolvedValueOnce({ x: 0.2, y: 0.5 })
     .mockResolvedValueOnce({ x: calibrated ? 0.4 : 0.35, y: 0.5 })
   await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={calibrated ? testSession() : null} />) })
   await startGame()
-  await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(GAZE_PREDICTION_INTERVAL_MS) })
   const marker = screen.getByTestId('gaze-crosshair')
   expect(parseFloat(marker.style.left) / 100).toBeCloseTo(expected.x, 12)
   expect(parseFloat(marker.style.top) / 100).toBeCloseTo(expected.y, 12)
@@ -179,7 +180,7 @@ test.each(['leave', 'resize'] as const)('ignores an in-flight prediction after %
     vi.stubGlobal('innerWidth', 1200)
     fireEvent(window, new Event('resize'))
   }
-  await act(async () => { finish({ x: 0.2, y: 0.5 }); await vi.advanceTimersByTimeAsync(200) })
+  await act(async () => { finish({ x: 0.2, y: 0.5 }); await vi.advanceTimersByTimeAsync(GAZE_PREDICTION_INTERVAL_MS) })
   expect(predictGaze).toHaveBeenCalledTimes(1)
   expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()
 })

@@ -10,13 +10,13 @@ import Maze from './Maze'
 import { GazeKalmanFilter } from '../gaze/kalman'
 import { enterFullscreen } from '../calibration/fullscreen'
 import { currentViewport, sameViewport } from '../vision/viewport'
+import { GAZE_PREDICTION_INTERVAL_MS, GAZE_SMOOTHING } from '../config'
 
 interface Props {
   onBack: () => void
   calibration?: CalibrationSession | null
 }
 
-const PREDICTION_INTERVAL = 200
 const currentLayout = () => ({ ...currentViewport(), fullscreen: !!document.fullscreenElement })
 
 export function MazeScreen({ onBack, calibration }: Props) {
@@ -111,7 +111,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
         ])
 
         if (signal.aborted) return
-        const kf = new GazeKalmanFilter()
+        const kf = new GazeKalmanFilter(GAZE_SMOOTHING)
         setGazeStatus('Tracking gaze')
 
         async function predict() {
@@ -128,7 +128,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
           }
 
           if (!signal.aborted) {
-            timer = setTimeout(() => void predict(), PREDICTION_INTERVAL)
+            timer = setTimeout(() => void predict(), GAZE_PREDICTION_INTERVAL_MS)
           }
         }
 

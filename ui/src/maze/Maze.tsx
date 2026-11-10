@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { generateMaze } from './mazeGenerator'
 import type { MazePosition } from './mazeGenerator'
+import {
+  GAZE_MOVE_INTERVAL_MS,
+  KEYBOARD_MOVE_INTERVAL_MS,
+  MAZE_COLS,
+  MAZE_ROWS,
+  PLAYER_SIZE_PERCENT,
+} from '../config'
 import './Maze.css'
 
-const ROWS = 15
-const COLS = 15
-const MOVE_INTERVAL = 160
+const ROWS = MAZE_ROWS
+const COLS = MAZE_COLS
 
 type Direction = 'up' | 'down' | 'left' | 'right'
 
@@ -154,7 +160,7 @@ export default function Maze({ gazeDirection = null }: MazeProps) {
       activeKey = event.key
 
       movePlayer(direction)
-      timer = setInterval(() => movePlayer(direction), MOVE_INTERVAL)
+      timer = setInterval(() => movePlayer(direction), KEYBOARD_MOVE_INTERVAL_MS)
     }
 
     function handleKeyUp(event: KeyboardEvent) {
@@ -188,7 +194,7 @@ useEffect(() => {
 
   const timer = setInterval(() => {
     movePlayer(gazeDirection)
-  }, MOVE_INTERVAL)
+  }, GAZE_MOVE_INTERVAL_MS)
 
   return () => clearInterval(timer)
 }, [gazeDirection, movePlayer])
@@ -275,8 +281,8 @@ useEffect(() => {
           style={{
             left: `${((player.col + 0.5) / COLS) * 100}%`,
             top: `${((player.row + 0.5) / ROWS) * 100}%`,
-            width: `${75 / COLS}%`,
-            height: `${75 / ROWS}%`,
+            width: `${PLAYER_SIZE_PERCENT / COLS}%`,
+            height: `${PLAYER_SIZE_PERCENT / ROWS}%`,
           }}
         >
           <img

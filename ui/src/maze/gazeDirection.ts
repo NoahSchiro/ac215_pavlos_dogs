@@ -3,6 +3,7 @@ import type { CaptureCamera } from '../vision/camera'
 import type { CalibrationSession } from '../calibration/record'
 import { applyCalibration } from '../calibration/ridge'
 import type { ScreenFraction } from '../vision/model'
+import { GAZE_CENTER_MIN, GAZE_CENTER_MAX } from '../config'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
@@ -10,8 +11,8 @@ export type Direction = 'up' | 'down' | 'left' | 'right'
 export function gazeToDirection(x: number, y: number): Direction | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
   if (x < 0 || x > 1 || y < 0 || y > 1) return null
-  const dx = x < 0.4 ? x - 0.4 : x > 0.6 ? x - 0.6 : 0
-  const dy = y < 0.4 ? y - 0.4 : y > 0.6 ? y - 0.6 : 0
+  const dx = x < GAZE_CENTER_MIN ? x - GAZE_CENTER_MIN : x > GAZE_CENTER_MAX ? x - GAZE_CENTER_MAX : 0
+  const dy = y < GAZE_CENTER_MIN ? y - GAZE_CENTER_MIN : y > GAZE_CENTER_MAX ? y - GAZE_CENTER_MAX : 0
   if (dx === 0 && dy === 0) return null
   if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right'
   return dy < 0 ? 'up' : 'down'
