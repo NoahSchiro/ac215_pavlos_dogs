@@ -59,9 +59,29 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /^Calibration/ })).toBeInTheDocument()
   })
 
+  it('asks for a mode after choosing the maze, and can go back', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    const modes = screen.getByRole('group', { name: 'Choose a mode' })
+    expect(modes).toHaveTextContent('Single player')
+    expect(modes).toHaveTextContent('Race a friend')
+
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    expect(screen.getByRole('button', { name: /^Calibration/ })).toBeInTheDocument()
+  })
+
+  it('opens race mode from the maze menu', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Race a friend/ }))
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Race a friend')
+    expect(screen.getByRole('button', { name: 'Create race' })).toBeInTheDocument()
+  })
+
   it('opens the maze and returns home', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Single player/ }))
     expect(screen.getByRole('group', { name: 'Maze' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Back to Home/i }))
