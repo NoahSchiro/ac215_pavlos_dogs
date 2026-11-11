@@ -34,7 +34,9 @@ This runs TypeScript checks and creates the production bundle in `dist/`.
 npm run test
 ```
 
-This runs the Vitest test suite once using the jsdom environment.
+Use `npm test -- --project app` for CI-compatible tests. The full suite also
+runs vision tests, which require a desktop browser, runtime downloads, and
+the actual ONNX weights.
 
 ## Lint
 
@@ -49,19 +51,17 @@ are the supported browsers.
 
 ```
 src/
-  App.tsx             view switcher: home | maze | calibration
+  App.tsx             home, maze, and personal calibration
   home/               HomeScreen: choose maze or calibration
-  maze/               MazeScreen: placeholder, replaced by #8
-  calibration/
-    points.ts         the 9 targets, sample types, burst constants
-    capture.ts        video frame -> JPEG blob, burst capture
-    useCamera.ts      owns the webcam MediaStream
-    Calibration.tsx   the calibration screen
-    fullscreen.ts     best-effort enter/exit full screen
-    Crosshair.tsx     target marker
+  maze/               live gaze loop, corrected direction mapping, maze controls
+  calibration/        nine-point calibration, saved correction, four-point check
   gaze/
+    GazeCrosshair.tsx  overlay for the displayed gameplay gaze
     kalman.ts         Kalman smoothing of per-frame gaze predictions
   vision/             the model's image preprocessing, ported to the browser
+    camera.ts         camera settings, verification, and approximate intrinsics
+    viewport.ts       current window dimensions and size comparison
+    jpeg.ts           decode JPEG blobs into RGB pixels
     cv.ts             thin wrappers over @techstark/opencv-js (see below)
     utils.ts          port of model/src/data/utils.py, steps 2-5 + tensors
     model.ts          GazeNet inference via onnxruntime-web (see below)
@@ -102,10 +102,11 @@ jsdelivr CDN pinned to the installed package version.
 `src/vision/model.ts` runs the trained GazeNet in the browser with
 `onnxruntime-web`. The model file is `public/models/gazenet.onnx`, exported
 by the training pipeline's own `export_onnx` (`model/src/training/export.py`)
-from the best checkpoint's `best.pt`; copy it here after training:
+from the best checkpoint's `best.pt`. Replace `RUN_NAME` with the training run
+directory, then copy the model:
 
 ```bash
-cp model/checkpoints/<run>/best.onnx ui/public/models/gazenet.onnx
+cp ../model/checkpoints/RUN_NAME/best.onnx public/models/gazenet.onnx
 ```
 
 The public API mirrors the preprocessing pipeline:
@@ -122,6 +123,14 @@ The public API mirrors the preprocessing pipeline:
 
 Predictions are sigmoid-activated fractions of the screen — the same label
 space `transformLabel` records calibration targets in.
+
+[Git LFS](https://github.com/git-lfs/git-lfs/blob/main/docs/man/git-lfs-faq.adoc) tracks the model file.
+With Git LFS configured for automatic downloads, `git pull` also retrieves
+updated weights. If the model file is still an LFS pointer, download the weights:
+
+```bash
+git lfs pull --include="ui/public/models/gazenet.onnx" --exclude=""
+```
 
 ## Gaze smoothing
 
@@ -142,29 +151,65 @@ smoother but slower output.
 
 ## Calibration
 
-Clicking **Calibration** on the home screen opens the webcam first, while the
-page is still windowed, so the browser's permission prompt stays visible.
-(Safari attaches the prompt to the toolbar, which full screen hides.) Once the
-camera is ready a **Camera ready** screen appears; clicking **Begin** (or
-pressing Space) enters full screen and shows the first crosshair. Targets sit
-on a 3x3 grid, inset 10% from each edge, ordered left to right then top to
-bottom.
+Personal calibration fits a ridge correction to your gaze predictions.
+Gameplay applies the correction before smoothing. The crosshair and maze
+movement use the same corrected, smoothed prediction.
 
-- **Space** captures a burst of 3 frames 100 ms apart, labels each with the
-  current target, and advances to the next crosshair.
-- **Escape** cancels and returns home.
-- After the 9th target the camera is stopped, full screen exits, and the home
-  screen shows the frame count with a **Recalibrate** option.
-- If the camera is denied or missing, an error screen offers **Retry** and
-  **Back**.
+1. Select **Calibration** on the home screen.
+2. Allow camera access and wait for **Camera ready**.
+3. Select **Begin**, or press Space, to enter full screen.
+4. Look at each of the nine targets and press Space to capture three frames.
+5. Wait for **Calibration ready** on the home screen before playing.
 
-Each `CalibrationSample` holds the full webcam frame as a JPEG `Blob`, the
-target as normalized `(x, y)` in `[0, 1]` with `(0, 0)` at the top-left, the
-target index, the viewport size, and a timestamp. This is the same label space
-the gaze model predicts in. Samples stay in browser memory and are never
-uploaded; fitting the per-user model is a later issue.
+Press **Escape** to cancel. If a capture fails, press Space again.
+If processing fails, select **Retry calibration**.
+If camera access fails, select **Retry** or **Back**.
+Failed or cancelled processing preserves the previous calibration.
 
-Full screen is best effort: if the browser refuses, calibration runs windowed.
+The browser decodes captured images into RGB pixels before preprocessing and inference.
+Images stay in memory during processing and are never uploaded or saved.
+The browser saves only the fitted correction and information needed to reuse it.
+
+If the browser refuses full screen, keep the window size and position unchanged.
+If the window size or full-screen mode changes during capture, go back and
+restart calibration.
+
+## Restore, reset, and reuse
+
+- After a reload, select **Verify saved camera** before reusing a saved calibration.
+  If verification fails, recalibrate with the current camera.
+- **Recalibrate** replaces the saved correction. **Clear calibration** deletes it.
+  Failed saves or clears preserve the previous record.
+- Recalibrate after changing your camera, posture, window position, or lighting.
+  If an update replaces the model weights, recalibrate before playing.
+
+Updating from the earlier format that saved photos clears the old record.
+Complete calibration again once after this update.
+
+## Gameplay
+
+1. Open **Maze** and allow camera access.
+2. Wait for the camera, then select **Start game** to enter full screen and start tracking.
+
+You can play with or without calibration. The status message shows whether
+gameplay uses your correction. Arrow keys also control the maze.
+
+If you use calibration, keep the game window at the size used for calibration.
+Changing window size or full-screen mode pauses gaze control and hides the crosshair. Restore the original
+size and mode, or recalibrate. Use **Restore full screen** to return to full screen.
+Missing faces and prediction failures also pause gaze control.
+Select **Back to Home** to leave the maze and exit full screen.
+
+## Accuracy check
+
+1. After calibration or camera verification, select **Validate calibration**.
+2. Select **Begin** and use the same window size as calibration.
+3. Look at each of the four targets and press Space to capture three fresh frames.
+4. Compare **Raw mean error** with **Corrected mean error**. Lower error is better.
+
+The check compares predictions before and after correction on the same fresh frames.
+Errors use normalized screen coordinates. The check does not change your calibration.
+Select **Try again** for another check, or **Back to Home** to leave.
 
 ## Testing
 

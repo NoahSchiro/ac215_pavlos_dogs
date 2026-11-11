@@ -51,6 +51,33 @@
   margin-top: 1.5rem;
 }
 
+.calibration-result {
+  max-width: 620px;
+  margin: 24px auto;
+}
+
+.calibration-result progress {
+  display: block;
+  width: 100%;
+  margin: 16px 0;
+}
+
+.calibration-result button {
+  padding: 10px 18px;
+  border: 1px solid var(--home-border);
+  border-radius: 12px;
+  background: var(--home-card);
+  color: var(--home-ink);
+}
+
+.calibration-storage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
 .home {
   --home-bg: #fffdf5;
   --home-ink: #57416b;
