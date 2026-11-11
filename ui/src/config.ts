@@ -9,6 +9,9 @@
 export const MAZE_ROWS = 15
 export const MAZE_COLS = 15
 
+/** Maximum on-screen maze size, accounting for viewport height. */
+export const MAZE_DISPLAY_SIZE = 'min(94vw, calc(100dvh - 100px))'
+
 /** Pavlos's size, as a percentage of one maze cell. */
 export const PLAYER_SIZE_PERCENT = 75
 

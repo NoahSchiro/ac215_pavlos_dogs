@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useCamera } from '../calibration/useCamera'
 import { getLandmarker } from '../vision/utils'
 import { loadGazeModel, type ScreenFraction } from '../vision/model'
@@ -10,7 +10,11 @@ import Maze from './Maze'
 import { GazeKalmanFilter } from '../gaze/kalman'
 import { enterFullscreen } from '../calibration/fullscreen'
 import { currentViewport, sameViewport } from '../vision/viewport'
-import { GAZE_PREDICTION_INTERVAL_MS, GAZE_SMOOTHING } from '../config'
+import {
+  GAZE_PREDICTION_INTERVAL_MS,
+  GAZE_SMOOTHING,
+  MAZE_DISPLAY_SIZE,
+} from '../config'
 
 interface Props {
   onBack: () => void
@@ -223,8 +227,6 @@ export function MazeScreen({ onBack, calibration }: Props) {
         style={{ display: 'none' }}
       />
 
-      <Maze gazeDirection={gazeDirection} />
-
       <GazeCrosshair gaze={gazePoint} />
 
       <p role="status" aria-live="polite">
@@ -239,46 +241,53 @@ export function MazeScreen({ onBack, calibration }: Props) {
             : gazeStatus}
       </p>
 
-      <div className="maze-side-buttons">
-        {!started && (
+      <div
+        className="maze-layout"
+        style={{ '--maze-size': MAZE_DISPLAY_SIZE } as CSSProperties}
+      >
+        <div className="maze-side-buttons">
+          {!started && (
+            <button
+              type="button"
+              className="back-button"
+              disabled={status !== 'ready' || !stream || starting}
+              onClick={() => {
+                void begin()
+              }}
+            >
+              Start game
+            </button>
+          )}
+
+          {started && !layout.fullscreen && (
+            <p>
+              Full screen is inactive or unavailable. Keep the window
+              size and position unchanged.
+            </p>
+          )}
+
+          {started && !layoutMatches && (
+            <button
+              type="button"
+              className="back-button"
+              onClick={() => {
+                void enterFullscreen()
+              }}
+            >
+              Restore full screen
+            </button>
+          )}
+
           <button
             type="button"
             className="back-button"
-            disabled={status !== 'ready' || !stream || starting}
-            onClick={() => {
-              void begin()
-            }}
+            onClick={onBack}
           >
-            Start game
+            Back to Home
           </button>
-        )}
+        </div>
 
-        {started && !layout.fullscreen && (
-          <p>
-            Full screen is inactive or unavailable. Keep the window
-            size and position unchanged.
-          </p>
-        )}
-
-        {started && !layoutMatches && (
-          <button
-            type="button"
-            className="back-button"
-            onClick={() => {
-              void enterFullscreen()
-            }}
-          >
-            Restore full screen
-          </button>
-        )}
-
-        <button
-          type="button"
-          className="back-button"
-          onClick={onBack}
-        >
-          Back to Home
-        </button>
+        <Maze gazeDirection={gazeDirection} />
       </div>
     </main>
   )
