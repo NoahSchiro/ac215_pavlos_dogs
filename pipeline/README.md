@@ -63,13 +63,30 @@ cd pipeline && uv run submit.py --project $PROJECT --image $IMAGE --epochs 2
   ```
 - Put the MPII cache at `gs://<bucket>/MPIIFaceGaze/MPIIFaceGaze_wd/`, and
   preprocessing is skipped.
-- Upload your W&B key. The train step reads it from the private bucket at
-  runtime, because a Vertex container can't `wandb login`:
+- Upload your W&B key, then **prove it can write to the team project before
+  submitting**. The train step reads the key from the private bucket at
+  runtime, because a Vertex container can't `wandb login`. A key can be valid
+  and still be refused by the project, and you'd otherwise learn that ten
+  minutes into a run. Create the key under your **user** settings on wandb.ai,
+  not inside a team: a team-scoped key could only reach its own team.
   ```bash
-  read -rsp "W&B API key: " WANDB_KEY && echo     # hidden; never touches disk
+  read -rsp "W&B API key: " WANDB_KEY && echo     # paste at the prompt; hidden, never touches disk
   printf %s "$WANDB_KEY" | gcloud storage cp - gs://ac215-gaze-data-rh/secrets/wandb_api_key
   unset WANDB_KEY
   ```
+
+**Check the key before submitting.** This makes the same call `train.py`
+makes, using the key from the bucket, then deletes its test run. Don't submit
+until it prints `KEY OK`:
+
+```bash
+cd ~ && uv run --with wandb python -c "
+import wandb, subprocess
+key = subprocess.check_output(['gcloud','storage','cat','gs://ac215-gaze-data-rh/secrets/wandb_api_key'], text=True).strip()
+wandb.login(key=key, relogin=True)
+r = wandb.init(entity='noahschiro-harvard-university', project='gaze', name='permission-check-delete-me')
+p = r.path; r.finish(); wandb.Api().run(p).delete(); print('KEY OK')"
+```
 
 ## Flags
 
@@ -94,24 +111,41 @@ it. Pass `--no-cache` to force every step to rerun.
 
 ## Checking a run
 
-`submit.py` prints the job name (`gaze-training-<timestamp>`). The run's
-state, each step's state, and the run's error if it has one:
+`submit.py` prints the job name. Use the **whole** name, for example
+`gaze-training-20261111193400`, not just the number. This prints each step's
+state, its **job id**, and its error:
 
 ```bash
-JOB=gaze-training-20261111182741   # replace with the name submit.py printed
+JOB=gaze-training-20261111193400   # replace with the name submit.py printed
 curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
   "https://us-east1-aiplatform.googleapis.com/v1/projects/$PROJECT/locations/us-east1/pipelineJobs/$JOB" \
   | python3 -c "
-import json,sys; j=json.load(sys.stdin); print('run:', j['state']); print('error:', j.get('error'))
-for t in j.get('jobDetail',{}).get('taskDetails',[]): print(f\"  {t['taskName']:<14} {t.get('state','PENDING')}\")"
+import json,sys; j=json.load(sys.stdin); print('run:', j['state'], '|', (j.get('error') or {}).get('message',''))
+for t in j.get('jobDetail',{}).get('taskDetails',[]):
+    d = t.get('executorDetail',{}).get('containerDetail',{})
+    print(f\"  {t['taskName']:<14} {t.get('state','PENDING'):<10} job id: {(d.get('mainJob') or '').split('/')[-1]}\")"
 ```
 
-A step's live logs: `gcloud ai custom-jobs list --region us-east1`, then
-`gcloud ai custom-jobs stream-logs <id> --region us-east1`.
+A failed step's error usually just says "exited with a non-zero status";
+the cause is in its log. Take the step's job id from the output above. The
+id in the pipeline-level message belongs to the pipeline wrapper and has no
+useful log. Your code's output is in `jsonPayload.message`, not
+`textPayload`, so read both:
+
+```bash
+ID=4300127510227582976   # replace with the failed step's job id
+gcloud logging read "resource.type=\"ml_job\" AND resource.labels.job_id=\"$ID\"" \
+  --project $PROJECT --freshness 1d --limit 300 \
+  --format 'value(severity,jsonPayload.message,textPayload)' | tac | grep -v "B/s\]" | tail -70
+```
+
+Look for the `Traceback`: its last line names the error. Lines marked
+`ERROR` that are only download progress bars aren't errors. They're stderr,
+which Cloud Logging marks `ERROR`.
 
 ## Troubleshooting
 
-Each of these happened on our first run.
+Each of these happened on our first runs, in this order, before the first green run.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -122,6 +156,8 @@ Each of these happened on our first run.
 | Run fails on the image, or never starts a step | The image tag doesn't exist (the build failed) | Check the image exists before submitting (above) |
 | `publish` fails: `no best.onnx` | The image was built from code that predates the ONNX export | Build from an up-to-date commit, and pin it with `git checkout` |
 | `train` fails: `no API key at …` | The W&B key isn't uploaded | Upload it (above), or pass `--wandb-project ''` |
+| `train` fails: `CommError: the provided API key cannot access this resource` | The key is valid but can't write to `noahschiro-harvard-university/gaze`: a team-scoped key, or an account that isn't allowed to create runs there. The log still shows "Currently logged in as …", which is misleading. | Create a key under user settings, upload it, and run the `KEY OK` check. Raising the account's team role alone did **not** fix a scoped key. To get a green run without W&B, pass `--wandb-project ''`. |
+| The log command prints only "Job is running" / "Job failed" | Wrong job id (the pipeline's, not the step's), or only `textPayload` read | Use the step's id from the status command, and the log command above |
 | `train` fails on quota (`custom_model_training_cpus`) | The project's CPU quota is below the step's 8-CPU request | Request more quota, or lower `set_cpu_limit` in `gaze_pipeline.py` |
 
 ## Who can rerun it
