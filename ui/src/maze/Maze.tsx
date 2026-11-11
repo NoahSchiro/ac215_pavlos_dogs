@@ -304,7 +304,7 @@ useEffect(() => {
       {hasWon && (
         <div className="maze-win">
           <div className="maze-win-trophy" aria-hidden="true">🏆</div>
-          <h2>Maze Complete!</h2>
+          <h2>You found the cheese!</h2>
           <p>Pavlos found the cheese!</p>
           <button
             type="button"
