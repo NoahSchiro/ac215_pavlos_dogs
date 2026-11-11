@@ -58,34 +58,51 @@ Compile only -- no GCP credentials needed, which is what the tests do:
 uv run submit.py --compile-only
 ```
 
-Build and push the training image, then submit:
+### The reproducible run
+
+This is the exact sequence for an MS3 run, from
+[Cloud Shell](https://shell.cloud.google.com), which has `gcloud`. Everything
+is pinned to one commit: the image is built from that commit's `model/` and
+tagged with its hash, and the pipeline is submitted from its `pipeline/`. A
+run's image tag therefore names the exact code that produced it.
 
 ```bash
-# from the repository root
-REGION=us-east1
-PROJECT=<your-project-id>
-IMAGE=$REGION-docker.pkg.dev/$PROJECT/gaze/gaze-model:latest
+export PROJECT=$(gcloud config get-value project) REGION=us-east1
 
-gcloud artifacts repositories create gaze \
-    --repository-format=docker --location=$REGION   # first time only
-gcloud auth configure-docker $REGION-docker.pkg.dev
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/NoahSchiro/ac215_pavlos_dogs.git
+cd ac215_pavlos_dogs
+git checkout <commit>                      # the commit to reproduce
+export IMAGE=$REGION-docker.pkg.dev/$PROJECT/gaze/gaze-model:$(git rev-parse --short HEAD)
 
-docker build --platform linux/amd64 -t $IMAGE model/
-docker push $IMAGE
+# Cloud Build builds linux/amd64, which Vertex requires; installing PyTorch
+# alone can outlast the default 10-minute build timeout.
+gcloud builds submit model --tag $IMAGE --timeout 3600 --machine-type e2-highcpu-8
 
+curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env
 cd pipeline
-uv run submit.py --project $PROJECT --image $IMAGE --epochs 24
+uv run submit.py --project $PROJECT --image $IMAGE --epochs 2
 ```
+
+`GIT_LFS_SKIP_SMUDGE=1` skips the repo's LFS files, which the build doesn't
+need, so the clone fits Cloud Shell's disk and spends none of the team's LFS
+bandwidth. `--epochs 2` is enough to demonstrate a logged, reproducible run on
+CPU; raise it for a model worth deploying.
+
+One-time project setup (APIs, the `gaze` Artifact Registry repo, the models
+bucket, and the Vertex service account's access) is in `deploy/README.md`.
+The MPII cache is expected at `gs://<bucket>/MPIIFaceGaze/MPIIFaceGaze_wd/`.
+If it's there, preprocessing is skipped.
 
 **W&B on Vertex.** Training logs to the team's W&B project (`gaze`, under
 `noahschiro-harvard-university`). A Vertex container can't `wandb login`, so
 the train step reads the API key from the private data bucket at runtime:
 
 ```bash
-# once; the key must belong to a member of the W&B team
-printf %s "<your W&B API key>" > /tmp/wandb_api_key
-gcloud storage cp /tmp/wandb_api_key gs://ac215-gaze-data-rh/secrets/wandb_api_key
-rm /tmp/wandb_api_key
+# once; the key must belong to a member of the W&B team. read -s keeps it
+# off the screen and out of shell history; nothing touches disk.
+read -rsp "W&B API key: " WANDB_KEY && echo
+printf %s "$WANDB_KEY" | gcloud storage cp - gs://ac215-gaze-data-rh/secrets/wandb_api_key
+unset WANDB_KEY
 ```
 
 The key never becomes a pipeline parameter, because parameters are stored
@@ -113,10 +130,33 @@ the image into the compiled spec at compile time; it is deployment
 configuration, not a pipeline parameter. `submit.py` handles that ordering and
 refuses an image that still contains the `PROJECT` placeholder.
 
-Other flags: `--region`, `--bucket`, `--val`, `--test`, `--wandb-project`.
+Other flags: `--region`, `--bucket`, `--val`, `--test`, `--wandb-project`,
+`--wandb-key`, `--models-bucket`, `--no-cache`.
 
-`enable_caching=True` means a rerun with unchanged parameters reuses the
-completed preprocess step instead of repeating the MediaPipe pass.
+Vertex caches every step by image and inputs. A rerun with unchanged
+parameters reuses completed steps, so the MediaPipe pass isn't repeated, but
+training isn't either: the old result is replayed. To retrain, as when
+checking that a run reproduces, pass `--no-cache`.
+
+### Who can rerun it
+
+Reproducible means anyone can rerun it with **their own credentials**. They
+don't borrow someone else's.
+
+- **On the team project:** a teammate needs IAM on the project, at minimum
+  `roles/aiplatform.user`, plus `roles/storage.objectAdmin` on the data
+  bucket and `roles/artifactregistry.reader`. The steps run as the project's
+  Vertex service account, which already has the data access. Each person
+  uploads **their own** W&B key, e.g. to `secrets/wandb_api_key_<name>`, and
+  passes `--wandb-key secrets/wandb_api_key_<name>`, so the run logs under
+  their name. Never share a W&B key: it is the account's password.
+- **Anyone else:** everything is a flag (`--project`, `--bucket`, `--image`,
+  `--models-bucket`, `--wandb-project`), so the run works in another GCP
+  project with its own copy of the data. They obtain the datasets themselves,
+  under their licenses. The one exception is `WandbLogger` in
+  `model/src/training/logging.py`, which hard-codes the team's W&B entity: an
+  outsider passes `--wandb-project ''` to train without W&B, or edits the
+  entity.
 
 ## Monitoring a run
 

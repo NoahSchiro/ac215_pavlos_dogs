@@ -40,9 +40,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="W&B project to log to (the team's is `gaze`); '' to skip W&B",
     )
     parser.add_argument(
+        "--wandb-key",
+        default="secrets/wandb_api_key",
+        help="object in --bucket holding the submitter's own W&B API key, so a"
+        " run logs as whoever launched it (e.g. secrets/wandb_api_key_<name>)",
+    )
+    parser.add_argument(
         "--models-bucket",
         help="public bucket the trained model is published to for the UI;"
         " defaults to <project>-gaze-models, as deploy/setup-gcp.sh creates it",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="rerun every step; by default Vertex reuses any step whose image"
+        " and inputs are unchanged, which would skip training on a rerun",
     )
     parser.add_argument(
         "--compile-only",
@@ -99,10 +111,10 @@ def main() -> None:
             "val_participant": args.val,
             "test_participant": args.test,
             "wandb_project": args.wandb_project,
-            "wandb_key_path": f"{gcs_mount(args.bucket)}/secrets/wandb_api_key",
+            "wandb_key_path": f"{gcs_mount(args.bucket)}/{args.wandb_key.lstrip('/')}",
             "models_bucket": models_bucket_name(args.models_bucket, args.project),
         },
-        enable_caching=True,
+        enable_caching=not args.no_cache,
     )
     job.submit()
     print(f"submitted: {job._dashboard_uri()}")
