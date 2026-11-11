@@ -24,6 +24,7 @@ import {
   type Size2i,
 } from './cv'
 import type { FaceLandmarker } from '@mediapipe/tasks-vision'
+import { reportInference } from './events'
 
 // --- small numpy-style 3-vector helpers (kept as plain math: constructing
 // Mats for three numbers would cost more than the operations) ---
@@ -139,6 +140,11 @@ export async function getLandmarker(
     cachedLandmarker = landmarker
     return landmarker
   })()
+  // Do not cache a failure: let the next caller retry, and report it.
+  cachedLandmarkerPromise.catch(() => {
+    cachedLandmarkerPromise = null
+    reportInference({ kind: 'load_error' })
+  })
 
   return cachedLandmarkerPromise
 }
@@ -425,7 +431,10 @@ export async function preprocess(
   let t: Float64Array
   try {
     ;[R, t] = await headPoseEst(landmarks, intrinsics)
-  } catch {
+  } catch (err) {
+    // 'pose_failed' alone hides the cause, and the cause is not always the
+    // pose: this is also the first call that needs the OpenCV runtime.
+    console.warn('head pose estimation failed', err)
     return 'pose_failed'
   }
 
