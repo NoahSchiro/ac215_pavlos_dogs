@@ -1,0 +1,28 @@
+{
+  "displayName": "Gaze Maze: browsers cannot load the model",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Browsers reported `load_error`: the gaze model or face landmarker did not load, so nobody can play.\n\nUsual causes: MODEL_URL points at a version that was never published; the models bucket lost its CORS rule or public read; a CDN dependency is down. Check the `model` label for which version, then `deploy/publish-model.sh` or redeploy the previous revision."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "Model load errors in the last 5 minutes",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/gaze_model_load_errors\" AND resource.type=\"cloud_run_revision\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "alertStrategy": { "autoClose": "1800s" }
+}

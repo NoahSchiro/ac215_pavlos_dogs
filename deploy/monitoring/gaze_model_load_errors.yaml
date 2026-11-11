@@ -1,0 +1,13 @@
+# Browsers that could not load the model: a wrong MODEL_URL, a bucket without
+# CORS, or a version that was never published. Alerted on (see the policy).
+description: Failed loads of the gaze model or face landmarker in browsers.
+filter: 'resource.type="cloud_run_revision" AND jsonPayload.type="gaze_telemetry" AND jsonPayload.ev="load_error"'
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: model
+      valueType: STRING
+labelExtractors:
+  model: EXTRACT(jsonPayload.model)
