@@ -8,19 +8,20 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import onnx
+import onnxruntime
 import pytest
 import torch
 import wandb
 from torch.utils.data import DataLoader, Dataset
 
 from src.data.utils import prepare_images
+from src.training.config import TrainConfig
+from src.training.export import export_onnx, load_checkpoint, save_checkpoint
 from src.training.logging import ConsoleLogger, WandbLogger
 from src.training.loop import (
-    TrainConfig,
     evaluate,
     fit,
-    load_checkpoint,
-    save_checkpoint,
 )
 from src.training.metrics import (
     angular_error_deg,
@@ -382,6 +383,73 @@ def test_fit_runs_checkpoints_and_logs(tmp_path: Path) -> None:
     logged = read_jsonl(tmp_path / "run.jsonl")
     assert len(logged) == 3
     assert "val_p02" in logged[0]
+
+
+def test_fit_exports_best_onnx_alongside_best_pt(tmp_path: Path) -> None:
+    """Every best.pt rewrite also writes an onnx twin; last.pt gets none."""
+    fit(
+        GazeNet(pretrained=False),
+        DataLoader(FakeGaze((0,)), batch_size=2),
+        DataLoader(FakeGaze((1,)), batch_size=2),
+        torch.device("cpu"),
+        TrainConfig(epochs=1, batch_size=2, num_workers=0),
+        tmp_path,
+        ConsoleLogger(tmp_path / "run.jsonl"),
+    )
+    assert (tmp_path / "best.onnx").is_file()
+    assert not (tmp_path / "last.onnx").exists()
+
+
+def test_exported_onnx_matches_torch_across_batches(tmp_path: Path) -> None:
+    """The onnx twin is dynamic-batch and numerically equal to the torch model.
+
+    Exported from a model left in train mode: the export must work on a copy
+    and leave the caller's weights and mode alone.
+    """
+    torch.manual_seed(0)
+    model = GazeNet(pretrained=False)
+    model.train()
+    path = export_onnx(tmp_path / "best.onnx", model)
+    assert model.training
+    model.eval()
+
+    proto = onnx.load(str(path))
+    assert [value.name for value in proto.graph.input] == [
+        "face",
+        "left_eye",
+        "right_eye",
+    ]
+    assert [value.name for value in proto.graph.output] == ["prediction"]
+    session = onnxruntime.InferenceSession(
+        str(path), providers=["CPUExecutionProvider"]
+    )
+
+    rng = np.random.default_rng(0)
+    for batch in (1, 3):
+        inputs = {
+            "face": rng.standard_normal((batch, 3, 224, 224)).astype(np.float32),
+            "left_eye": rng.standard_normal((batch, 3, 36, 60)).astype(np.float32),
+            "right_eye": rng.standard_normal((batch, 3, 36, 60)).astype(np.float32),
+        }
+        with torch.no_grad():
+            expected = model(
+                torch.from_numpy(inputs["face"]),
+                torch.from_numpy(inputs["left_eye"]),
+                torch.from_numpy(inputs["right_eye"]),
+            ).numpy()
+        (got,) = session.run(None, inputs)
+        # onnxruntime and torch accumulate fp32 convolutions in different
+        # orders; on fixed inputs this stays around 2e-4 (the exported graph
+        # itself is exact -- an fp64 export matches torch fp64 to 5e-15).
+        # A real mistake -- wrong weights or wiring -- shows up at O(0.1).
+        assert np.abs(got - expected).max() < 1e-3
+
+
+def test_exported_onnx_without_eyes_takes_only_the_face(tmp_path: Path) -> None:
+    model = GazeNet(pretrained=False, use_eyes=False).eval()
+    path = export_onnx(tmp_path / "best.onnx", model)
+    inputs = onnx.load(str(path)).graph.input
+    assert [value.name for value in inputs] == ["face"]
 
 
 def test_fit_resumes_from_the_last_checkpoint(

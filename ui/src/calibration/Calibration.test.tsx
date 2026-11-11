@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Calibration } from './Calibration'
-import { CALIBRATION_POINTS, FRAMES_PER_POINT } from './points'
+import { CALIBRATION_POINTS, VALIDATION_POINTS, FRAMES_PER_POINT, type CalibrationResult } from './points'
 import type { Camera, CameraStatus } from './useCamera'
 
 vi.mock('./useCamera', () => ({ useCamera: vi.fn() }))
@@ -42,14 +42,15 @@ async function pressSpace(repeat = false) {
 }
 
 /** Render with the camera ready and click Begin so targets are showing. */
-function renderStarted(onComplete = vi.fn(), onCancel = vi.fn()) {
+async function renderStarted(onComplete = vi.fn(), onCancel = vi.fn()) {
   const utils = render(<Calibration onComplete={onComplete} onCancel={onCancel} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Begin' }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Begin' })) })
   return { ...utils, onComplete, onCancel }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(enterFullscreen).mockReset().mockResolvedValue(undefined)
   mockedBurst.mockImplementation(async () => fakeFrames())
   // jsdom does not implement media playback.
   HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined)
@@ -57,7 +58,59 @@ beforeEach(() => {
   setCamera('ready')
 })
 
+afterEach(() => vi.unstubAllGlobals())
+
 describe('Calibration', () => {
+  it('waits for fullscreen before showing targets and ignores completion after cancellation', async () => {
+    let finish!: () => void
+    vi.mocked(enterFullscreen).mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    const onCancel = vi.fn()
+    render(<Calibration onComplete={vi.fn()} onCancel={onCancel} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Begin' }))
+    expect(screen.queryByTestId('crosshair')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await act(async () => finish())
+    expect(screen.queryByTestId('crosshair')).not.toBeInTheDocument()
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+
+  it('discards an in-flight burst if the viewport changes', async () => {
+    let finish!: (frames: Blob[]) => void
+    const { onComplete } = await renderStarted()
+    mockedBurst.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    await pressSpace()
+    vi.stubGlobal('innerWidth', window.innerWidth + 100)
+    fireEvent(window, new Event('resize'))
+    await act(async () => finish(fakeFrames()))
+    expect(screen.getByRole('alert')).toHaveTextContent(/window.*changed/i)
+    expect(onComplete).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('checks the saved viewport after fullscreen settles before validation capture', async () => {
+    const onComplete = vi.fn()
+    render(<Calibration mode="validation" expectedViewport={{ width: 800, height: 600 }}
+      onComplete={onComplete} onCancel={vi.fn()} />)
+    vi.stubGlobal('innerWidth', 1200)
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Begin' })))
+    expect(screen.getByRole('alert')).toHaveTextContent(/window size does not match/i)
+    expect(screen.queryByTestId('crosshair')).not.toBeInTheDocument()
+    expect(mockedBurst).not.toHaveBeenCalled()
+  })
+
+  it('captures only the four validation targets without changing the default nine-point grid', async () => {
+    const onComplete = vi.fn()
+    render(<Calibration mode="validation" onComplete={onComplete} onCancel={vi.fn()} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Begin' })) })
+    expect(screen.getByRole('application')).toHaveAttribute('aria-label', 'Gaze validation')
+    for (let i = 0; i < 4; i++) await pressSpace()
+    const result = onComplete.mock.calls[0][0] as CalibrationResult
+    expect(result.samples).toHaveLength(12)
+    result.samples.forEach((sample, i) => expect(sample.target).toEqual(VALIDATION_POINTS[Math.floor(i / 3)]))
+    expect(CALIBRATION_POINTS).toHaveLength(9)
+    expect(camera.stop).toHaveBeenCalledOnce()
+  })
+
   it('starts the camera on mount', () => {
     render(<Calibration onComplete={vi.fn()} onCancel={vi.fn()} />)
     expect(camera.start).toHaveBeenCalledTimes(1)
@@ -78,8 +131,8 @@ describe('Calibration', () => {
     expect(enterFullscreen).not.toHaveBeenCalled()
   })
 
-  it('enters full screen and shows the first target when Begin is clicked', () => {
-    renderStarted()
+  it('enters full screen and shows the first target when Begin is clicked', async () => {
+    await renderStarted()
     expect(enterFullscreen).toHaveBeenCalledTimes(1)
     expect(screen.getByText('Point 1 of 9')).toBeInTheDocument()
     expect(screen.getByTestId('crosshair')).toHaveStyle({ left: '10%', top: '10%' })
@@ -101,15 +154,15 @@ describe('Calibration', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the first target at the top-left grid position', () => {
-    renderStarted()
+  it('shows the first target at the top-left grid position', async () => {
+    await renderStarted()
     expect(screen.getByText('Point 1 of 9')).toBeInTheDocument()
     const ch = screen.getByTestId('crosshair')
     expect(ch).toHaveStyle({ left: '10%', top: '10%' })
   })
 
   it('advances to the next target after a Space capture', async () => {
-    renderStarted()
+    await renderStarted()
     await pressSpace()
     expect(mockedBurst).toHaveBeenCalledTimes(1)
     expect(screen.getByText('Point 2 of 9')).toBeInTheDocument()
@@ -117,7 +170,7 @@ describe('Calibration', () => {
   })
 
   it('ignores held-Space repeats but accepts the next fresh press', async () => {
-    renderStarted()
+    await renderStarted()
     await pressSpace()
     await pressSpace(true)
     expect(mockedBurst).toHaveBeenCalledTimes(1)
@@ -145,7 +198,7 @@ describe('Calibration', () => {
   })
 
   it('completes after nine captures with correctly labeled samples', async () => {
-    const { onComplete } = renderStarted()
+    const { onComplete } = await renderStarted()
 
     for (let i = 0; i < 9; i++) await pressSpace()
 
@@ -166,7 +219,7 @@ describe('Calibration', () => {
   })
 
   it('does not capture a tenth point', async () => {
-    const { onComplete } = renderStarted()
+    const { onComplete } = await renderStarted()
     for (let i = 0; i < 10; i++) await pressSpace()
     expect(onComplete).toHaveBeenCalledTimes(1)
     expect(mockedBurst).toHaveBeenCalledTimes(9)
@@ -183,7 +236,7 @@ describe('Calibration', () => {
   it('ignores Space while a burst is in progress', async () => {
     let finish!: (frames: Blob[]) => void
     mockedBurst.mockReturnValueOnce(new Promise((r) => (finish = r)))
-    renderStarted()
+    await renderStarted()
 
     await pressSpace()
     expect(screen.getByText(/Capturing/)).toBeInTheDocument()
@@ -196,7 +249,7 @@ describe('Calibration', () => {
 
   it('shows an error and stays on the same point when capture fails', async () => {
     mockedBurst.mockRejectedValueOnce(new Error('no frame'))
-    renderStarted()
+    await renderStarted()
     await pressSpace()
     expect(screen.getByText(/Capture failed/)).toBeInTheDocument()
     expect(screen.getByText('Point 1 of 9')).toBeInTheDocument()
@@ -207,7 +260,7 @@ describe('Calibration', () => {
   })
 
   it('cancels on Escape and stops the camera', async () => {
-    const { onCancel } = renderStarted()
+    const { onCancel } = await renderStarted()
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Escape' })
     })
@@ -218,7 +271,7 @@ describe('Calibration', () => {
   it.each(['cancel', 'unmount'] as const)(
     'discards a pending final burst after %s',
     async (action) => {
-      const { onComplete, onCancel, unmount } = renderStarted()
+      const { onComplete, onCancel, unmount } = await renderStarted()
       for (let i = 0; i < 8; i++) await pressSpace()
       let finish!: (frames: Blob[]) => void
       mockedBurst.mockReturnValueOnce(new Promise((r) => (finish = r)))
@@ -237,7 +290,7 @@ describe('Calibration', () => {
   it('does not show a late capture error after cancellation', async () => {
     let fail!: (reason: Error) => void
     mockedBurst.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
-    const { onComplete } = renderStarted()
+    const { onComplete } = await renderStarted()
     await pressSpace()
     fireEvent.keyDown(window, { key: 'Escape' })
     await act(async () => fail(new Error('camera stopped')))
@@ -262,7 +315,7 @@ describe('Calibration', () => {
   })
 
   it('removes the keyboard listener on unmount', async () => {
-    const { unmount } = renderStarted()
+    const { unmount } = await renderStarted()
     unmount()
     await pressSpace()
     expect(mockedBurst).not.toHaveBeenCalled()

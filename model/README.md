@@ -110,6 +110,11 @@ only (evaluation always sees raw crops): `--flip` mirrors half the samples
 `--photometric-jitter` adds +/- 20% brightness/contrast. All three are recorded
 in checkpoints.
 
+After training, the test set is scored twice: raw, and with a per-user
+ridge-regression correction that `train.py` fits itself on each test
+subject's nine extreme screen positions (corners, edge midpoints and center 
+of a 3x3 lattice. Both scores are logged
+
 If you are using the `wandb` logger, then you need to login first:
 
 ```bash
@@ -144,7 +149,8 @@ sets this via `shm_size`.
 |---|---|
 | `src/training/model.py` | `GazeNet`: a ResNet-18 face tower plus one eye tower shared across both eyes, with the left crop flipped into the right's orientation. `--no-pretrained` switches to random init; `--no-eyes` ablates the eye towers. |
 | `src/training/metrics.py` | Mean, median and p95, plus a per-participant breakdown, with converters to cm and degrees for comparison against published figures. |
-| `src/training/loop.py` | Train and eval loops, per-epoch and best checkpointing, resume. |
+| `src/training/loop.py` | Train and eval loops, resume logic. |
+| `src/training/export.py` | save and load `GazeNet`, both as `.onnx` and `.pt` files |
 | `src/training/logging.py` | `ConsoleLogger` (json logger), and a `WandbLogger` (logs to wandb) |
 
 `--output-mode` selects the head. We train on `screen_fraction` today;
