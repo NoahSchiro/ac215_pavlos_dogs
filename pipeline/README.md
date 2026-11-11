@@ -19,11 +19,15 @@ hash, so a run names the exact code that produced it.
 ```bash
 export PROJECT=$(gcloud config get-value project) REGION=us-east1
 
+COMMIT=2f7e379   # the commit to run; any commit that has pipeline/
 GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/NoahSchiro/ac215_pavlos_dogs.git
-cd ac215_pavlos_dogs && git checkout <commit>
+cd ac215_pavlos_dogs && git checkout $COMMIT
 export IMAGE=$REGION-docker.pkg.dev/$PROJECT/gaze/gaze-model:$(git rev-parse --short HEAD)
 
 gcloud builds submit model --tag $IMAGE --timeout 3600 --machine-type e2-highcpu-8
+
+# Don't submit until the image exists: a run with a missing image fails late.
+gcloud artifacts docker images list $REGION-docker.pkg.dev/$PROJECT/gaze --include-tags | grep $(git rev-parse --short HEAD)
 
 curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env
 cd pipeline && uv run submit.py --project $PROJECT --image $IMAGE --epochs 2
@@ -36,8 +40,27 @@ cd pipeline && uv run submit.py --project $PROJECT --image $IMAGE --epochs 2
   model worth deploying.
 
 **Before the first run:**
-- Do the project setup in `deploy/README.md`: APIs, the `gaze` Artifact
-  Registry repo, the models bucket, and the service account's access.
+- Set up the project once. On new projects the Compute Engine default
+  service account, which runs **both** Cloud Build and every pipeline step,
+  starts with **no roles**. Each missing one fails a different stage (see
+  [Troubleshooting](#troubleshooting)):
+  ```bash
+  export PROJECT=$(gcloud config get-value project) REGION=us-east1
+  SA=$(gcloud projects describe $PROJECT --format 'value(projectNumber)')-compute@developer.gserviceaccount.com
+
+  gcloud services enable aiplatform.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com
+  gcloud artifacts repositories create gaze --location $REGION --repository-format docker
+  gcloud storage buckets create gs://$PROJECT-gaze-models --location $REGION
+
+  for ROLE in aiplatform.user cloudbuild.builds.builder logging.logWriter \
+              artifactregistry.writer storage.objectAdmin; do
+    gcloud projects add-iam-policy-binding $PROJECT --member serviceAccount:$SA \
+      --role roles/$ROLE --condition None >/dev/null
+  done
+  # The data bucket may belong to another project; grant it there explicitly.
+  gcloud storage buckets add-iam-policy-binding gs://ac215-gaze-data-rh \
+    --member serviceAccount:$SA --role roles/storage.objectAdmin
+  ```
 - Put the MPII cache at `gs://<bucket>/MPIIFaceGaze/MPIIFaceGaze_wd/`, and
   preprocessing is skipped.
 - Upload your W&B key. The train step reads it from the private bucket at
@@ -68,6 +91,38 @@ so it trains fresh into its own folder, while `preprocess` is still reused from
 cache. Vertex caches steps by image and inputs, so passing an earlier
 `--run-id` with unchanged parameters **replays** that run instead of repeating
 it. Pass `--no-cache` to force every step to rerun.
+
+## Checking a run
+
+`submit.py` prints the job name (`gaze-training-<timestamp>`). The run's
+state, each step's state, and the run's error if it has one:
+
+```bash
+JOB=gaze-training-20261111182741   # replace with the name submit.py printed
+curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://us-east1-aiplatform.googleapis.com/v1/projects/$PROJECT/locations/us-east1/pipelineJobs/$JOB" \
+  | python3 -c "
+import json,sys; j=json.load(sys.stdin); print('run:', j['state']); print('error:', j.get('error'))
+for t in j.get('jobDetail',{}).get('taskDetails',[]): print(f\"  {t['taskName']:<14} {t.get('state','PENDING')}\")"
+```
+
+A step's live logs: `gcloud ai custom-jobs list --region us-east1`, then
+`gcloud ai custom-jobs stream-logs <id> --region us-east1`.
+
+## Troubleshooting
+
+Each of these happened on our first run.
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `gcloud builds submit` → `FAILURE`, plus "does not have permission to write logs" | The service account has no Cloud Build roles, and without log access the real error is hidden | Grant `cloudbuild.builds.builder`, `logging.logWriter`, `artifactregistry.writer` (setup above), then rebuild |
+| Run `FAILED` with **no steps listed**; error `Permission 'aiplatform.metadataStores.get' denied` | The service account can't use Vertex AI | Grant `roles/aiplatform.user`, wait a minute, resubmit |
+| `submit.py` prints a traceback: "exists but does not belong to project … bucket squatting" | The data bucket is in another project | Harmless: the job is still created. Check for `PipelineJob created` |
+| A step fails with permission denied on `/gcs/…` | No access to the (cross-project) data bucket | The `buckets add-iam-policy-binding` line in setup |
+| Run fails on the image, or never starts a step | The image tag doesn't exist (the build failed) | Check the image exists before submitting (above) |
+| `publish` fails: `no best.onnx` | The image was built from code that predates the ONNX export | Build from an up-to-date commit, and pin it with `git checkout` |
+| `train` fails: `no API key at …` | The W&B key isn't uploaded | Upload it (above), or pass `--wandb-project ''` |
+| `train` fails on quota (`custom_model_training_cpus`) | The project's CPU quota is below the step's 8-CPU request | Request more quota, or lower `set_cpu_limit` in `gaze_pipeline.py` |
 
 ## Who can rerun it
 
