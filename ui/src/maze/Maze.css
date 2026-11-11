@@ -98,6 +98,7 @@
   justify-content: safe center;
   gap: 20px;
   padding: 16px;
+  position: relative;
 }
 
 /* Keep the back button centered below the maze. */
@@ -128,29 +129,50 @@
   );
 }
 
+/* Victory message — no background box or outline */
 .maze-win {
-  position: static;
+  position: absolute;
+  top: 50%;
+  left: calc(75% + min(94vw, 100dvh - 100px) / 4);
+  transform: translate(-50%, -50%);
+  z-index: 10;
+
   flex: 0 0 auto;
-  width: 220px;
+  width: 260px;
   box-sizing: border-box;
 
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 12px;
+  padding: 20px 16px;
 
-  background: var(--bg);
-  border: 2px solid var(--maze-wall);
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  background: transparent;
+  border: none;
+  border-radius: 16px;
+  box-shadow: none;
   text-align: center;
+}
+
+.maze-win-trophy {
+  font-size: 32px;
+  line-height: 1;
+  margin-bottom: 4px;
 }
 
 .maze-win h2 {
   margin: 0;
-  font-size: 16px;
-  line-height: 1.3;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.maze-win p {
+  margin: 0 0 10px;
+  color: #c5bbd0;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .maze-win button {
@@ -242,4 +264,33 @@
   .game-button:active {
     transform: none;
   }
+}
+
+/* Center Start game and Back to Home on the left side of the maze. */
+.maze-side-buttons {
+  position: absolute;
+  top: 50%;
+  left: calc(25% - min(94vw, 100dvh - 100px) / 4);
+  transform: translate(-50%, -50%);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+
+  width: 180px;
+  z-index: 10;
+}
+
+.maze-side-buttons .back-button {
+  width: 100%;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.maze-side-buttons p {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.4;
 }
