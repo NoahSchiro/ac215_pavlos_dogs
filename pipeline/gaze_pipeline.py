@@ -12,6 +12,11 @@ preprocessing and how checkpoints outlive the run.
 Steps are ordered with `.after()` rather than by passing artifacts between
 them: the cache and the checkpoints live in the bucket, so the only thing
 the DAG needs to express is sequence.
+
+Each pipeline run gets its own folder, `<checkpoint_dir>/<run_id>/`, and
+train, evaluate and publish only ever look inside it. Without that, evaluate
+and publish would pick "the newest run in the bucket", which is another run's
+model whenever two pipelines (or a pipeline and a manual upload) overlap.
 """
 
 import os
@@ -25,6 +30,12 @@ IMAGE = os.environ.get(
     "GAZE_IMAGE", "us-east1-docker.pkg.dev/PROJECT/gaze/gaze-model:latest"
 )
 
+# A run id names a folder, so it must be one plain path segment.
+_CHECK_RUN_ID = """case "$run_id" in
+  ''|*[!A-Za-z0-9._-]*|.|..) echo "invalid run id: '$run_id'" >&2; exit 1 ;;
+esac
+"""
+
 _PREPROCESS_SH = """set -euo pipefail
 if [ -e "$0/MPIIFaceGaze_wd" ]; then
   echo "cache already present under $0; skipping"
@@ -34,18 +45,34 @@ echo "building webdataset cache under $0"
 uv run python -c "from src.data.mpiifacegaze import MPII; MPII(list(range(15)), '$0')"
 """
 
-_EVALUATE_SH = """set -euo pipefail
-latest="$(ls -d "$0"/*/ 2>/dev/null | sort | tail -1)"
-if [ -z "$latest" ]; then echo "no run directory under $0" >&2; exit 1; fi
-echo "reporting metrics from $latest"
-mkdir -p "$(dirname "$1")"
-cp "$latest/best_metrics.json" "$1"
-cat "$1"
+_EVALUATE_SH = (
+    """set -euo pipefail
+run_id="$1"; out="$2"
 """
+    + _CHECK_RUN_ID
+    + """run_root="$0/$run_id"
+# Only this pipeline run's folder. A retried train step can leave more than
+# one timestamped attempt in it; the newest is the one that finished.
+# `|| true`: with pipefail, an empty folder would otherwise exit here silently.
+latest="$(ls -d "$run_root"/*/ 2>/dev/null | sort | tail -1 || true)"
+if [ -z "$latest" ]; then echo "no run directory under $run_root" >&2; exit 1; fi
+echo "reporting metrics from $latest"
+mkdir -p "$(dirname "$out")"
+cp "$latest/best_metrics.json" "$out"
+cat "$out"
+"""
+)
 
 
-_TRAIN_SH = """set -euo pipefail
-key_file="$0"; project="$1"; shift  # $0 is the key file, so only $1 shifts off
+_TRAIN_SH = (
+    """set -euo pipefail
+# $0 is the key file, so only $1..$3 shift off; the rest are train.py flags.
+key_file="$0"; project="$1"; checkpoints="$2"; run_id="$3"; shift 3
+"""
+    + _CHECK_RUN_ID
+    + """# train.py makes a <timestamp> folder under --checkpoint-dir, so this run's
+# weights land in <checkpoints>/<run_id>/<timestamp>/.
+run_root="$checkpoints/$run_id"
 
 # DataLoader workers hand batches to the trainer through /dev/shm. Containers
 # often get a small one (Docker's default is 64MB), and running out of it
@@ -64,7 +91,7 @@ case "$shm_kb" in
 esac
 
 if [ -z "$project" ]; then
-  exec uv run train.py "$@" $workers
+  exec uv run train.py --checkpoint-dir "$run_root" "$@" $workers
 fi
 if [ ! -s "$key_file" ]; then
   echo "W&B project '$project' requested but there is no API key at $key_file" >&2
@@ -73,16 +100,23 @@ if [ ! -s "$key_file" ]; then
 fi
 WANDB_API_KEY="$(cat "$key_file")"
 export WANDB_API_KEY
-exec uv run train.py --wandb "$project" "$@" $workers
+exec uv run train.py --wandb "$project" --checkpoint-dir "$run_root" "$@" $workers
 """
+)
 
-_PUBLISH_SH = """set -euo pipefail
-checkpoints="$0"; bucket="$1"; out="$2"
+_PUBLISH_SH = (
+    """set -euo pipefail
+run_id="$1"; bucket="$2"; out="$3"
+"""
+    + _CHECK_RUN_ID
+    + """run_root="$0/$run_id"
 root="${GCS_MOUNT:-/gcs}/$bucket"
-latest="$(ls -d "$checkpoints"/*/ 2>/dev/null | sort | tail -1)"
+# Only this pipeline run's folder, so a concurrent run can't be published by mistake.
+# `|| true`: with pipefail, an empty folder would otherwise exit here silently.
+latest="$(ls -d "$run_root"/*/ 2>/dev/null | sort | tail -1 || true)"
 latest="${latest%/}"
 if [ -z "$latest" ] || [ ! -f "$latest/best.onnx" ]; then
-  echo "no best.onnx in the newest run under $checkpoints" >&2; exit 1
+  echo "no best.onnx in this run's folder $run_root" >&2; exit 1
 fi
 version="$(basename "$latest")"
 dest="$root/models/$version"
@@ -97,6 +131,7 @@ mkdir -p "$(dirname "$out")"
 printf '%s' "$url" > "$out"
 echo "published MODEL_URL=$url"
 """
+)
 
 
 def gcs_mount(uri: str) -> str:
@@ -107,7 +142,7 @@ def gcs_mount(uri: str) -> str:
 
 
 @dsl.container_component
-def preprocess_op(data_root: str):
+def preprocess_op(data_root: str) -> dsl.ContainerSpec:
     """Build the webdataset cache unless it already sits beside the raw data.
 
     Idempotent on purpose: the cache lives in the bucket, so rerunning the
@@ -122,12 +157,13 @@ def preprocess_op(data_root: str):
 def train_op(
     data_root: str,
     checkpoint_dir: str,
+    run_id: str,
     epochs: int,
     val_participant: int,
     test_participant: int,
     wandb_project: str,
     wandb_key_path: str,
-):
+) -> dsl.ContainerSpec:
     """Run train.py. Flags map one-to-one, so the CLI stays the source of truth.
 
     W&B needs an API key, and a Vertex container has no `wandb login`. The key
@@ -143,10 +179,11 @@ def train_op(
             _TRAIN_SH,
             wandb_key_path,
             wandb_project,
+            # The script passes --checkpoint-dir <checkpoint_dir>/<run_id>.
+            checkpoint_dir,
+            run_id,
             "--data-root",
             data_root,
-            "--checkpoint-dir",
-            checkpoint_dir,
             "--epochs",
             epochs,
             "--val",
@@ -161,7 +198,11 @@ def train_op(
 
 
 @dsl.container_component
-def evaluate_op(checkpoint_dir: str, metrics: dsl.OutputPath(str)):  # type: ignore[valid-type]
+def evaluate_op(
+    checkpoint_dir: str,
+    run_id: str,
+    metrics: dsl.OutputPath(str),  # type: ignore[valid-type]
+) -> dsl.ContainerSpec:
     """Lift the run's best metrics out as a pipeline artifact.
 
     `fit` already writes best_metrics.json beside the checkpoints. Copying it
@@ -171,16 +212,17 @@ def evaluate_op(checkpoint_dir: str, metrics: dsl.OutputPath(str)):  # type: ign
     return dsl.ContainerSpec(
         image=IMAGE,
         command=["bash", "-c"],
-        args=[_EVALUATE_SH, checkpoint_dir, metrics],
+        args=[_EVALUATE_SH, checkpoint_dir, run_id, metrics],
     )
 
 
 @dsl.container_component
 def publish_op(
     checkpoint_dir: str,
+    run_id: str,
     models_bucket: str,
     model_url: dsl.OutputPath(str),  # type: ignore[valid-type]
-):
+) -> dsl.ContainerSpec:
     """Publish the run's best.onnx where the UI can load it.
 
     Copies it to gs://<models_bucket>/models/<run>/gazenet.onnx with the run's
@@ -195,7 +237,7 @@ def publish_op(
     return dsl.ContainerSpec(
         image=IMAGE,
         command=["bash", "-c"],
-        args=[_PUBLISH_SH, checkpoint_dir, models_bucket, model_url],
+        args=[_PUBLISH_SH, checkpoint_dir, run_id, models_bucket, model_url],
     )
 
 
@@ -206,6 +248,8 @@ def publish_op(
 def gaze_pipeline(
     data_root: str = "/gcs/ac215-gaze-data-rh/MPIIFaceGaze",
     checkpoint_dir: str = "/gcs/ac215-gaze-data-rh/checkpoints",
+    # submit.py gives every submission a fresh id; see the module docstring.
+    run_id: str = "manual",
     epochs: int = 10,
     val_participant: int = 13,
     test_participant: int = 14,
@@ -219,6 +263,7 @@ def gaze_pipeline(
     train = train_op(
         data_root=data_root,
         checkpoint_dir=checkpoint_dir,
+        run_id=run_id,
         epochs=epochs,
         val_participant=val_participant,
         test_participant=test_participant,
@@ -232,11 +277,13 @@ def gaze_pipeline(
     train.set_memory_limit("32G")
     train.set_cpu_limit("8")
 
-    evaluate = evaluate_op(checkpoint_dir=checkpoint_dir)
+    evaluate = evaluate_op(checkpoint_dir=checkpoint_dir, run_id=run_id)
     evaluate.after(train)
     evaluate.set_display_name("evaluate (publish metrics)")
 
     # Only a run that produced its metrics gets published.
-    publish = publish_op(checkpoint_dir=checkpoint_dir, models_bucket=models_bucket)
+    publish = publish_op(
+        checkpoint_dir=checkpoint_dir, run_id=run_id, models_bucket=models_bucket
+    )
     publish.after(evaluate)
     publish.set_display_name("publish model for the UI")

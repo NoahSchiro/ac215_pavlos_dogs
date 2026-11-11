@@ -57,14 +57,17 @@ cd pipeline && uv run submit.py --project $PROJECT --image $IMAGE --epochs 2
 | `--bucket` | `gs://ac215-gaze-data-rh` | data, checkpoints, pipeline root |
 | `--models-bucket` | `<project>-gaze-models` | public bucket `publish` writes to |
 | `--epochs`, `--val`, `--test` | `10`, `13`, `14` | passed to `train.py` |
+| `--run-id` | new UTC timestamp | this run's folder under `checkpoints/`; reuse one to replay that run |
 | `--wandb-project` | `gaze` | `''` trains without W&B |
 | `--wandb-key` | `secrets/wandb_api_key` | the submitter's own key, in `--bucket` |
 | `--no-cache` | off | rerun every step (see below) |
 | `--compile-only` | off | write `gaze_pipeline.json`; no credentials needed |
 
-Vertex caches steps by image and inputs, so a rerun with unchanged parameters
-**replays** training instead of repeating it. Pass `--no-cache` to retrain,
-for example when checking that a run reproduces.
+Every submission gets its own run id (a UTC timestamp, printed by `submit.py`),
+so it trains fresh into its own folder, while `preprocess` is still reused from
+cache. Vertex caches steps by image and inputs, so passing an earlier
+`--run-id` with unchanged parameters **replays** that run instead of repeating
+it. Pass `--no-cache` to force every step to rerun.
 
 ## Who can rerun it
 
@@ -86,7 +89,7 @@ Each person reruns it with **their own credentials**, never someone else's.
 | Vertex run graph | step status and timings; `evaluate`'s `metrics` and `publish`'s `model_url` outputs |
 | Cloud Logging | every step's stdout/stderr, e.g. a MediaPipe crash or a corrupt shard |
 | W&B, project `gaze` | per-epoch loss and error curves |
-| `gs://<bucket>/checkpoints/<run>/` | `best.pt`, `best.onnx`, `last.pt`, `best_metrics.json` |
+| `gs://<bucket>/checkpoints/<run-id>/<timestamp>/` | `best.pt`, `best.onnx`, `last.pt`, `best_metrics.json` |
 
 ## Design notes
 
@@ -100,6 +103,9 @@ Each person reruns it with **their own credentials**, never someone else's.
   can have as little as 64 MB. The train step measures it and below 1 GB uses
   `--workers 0`, logging the choice. Changing the sharing strategy wouldn't
   help, since both strategies allocate in `/dev/shm`.
+- **One folder per run:** train writes to `checkpoints/<run-id>/`, and
+  evaluate and publish only look there. Picking "the newest run in the bucket"
+  instead would grab another run's model whenever two runs overlap.
 - **Publishing:** a published version is never overwritten with different
   weights. Republishing identical bytes succeeds, so a retried step doesn't
   fail on its own earlier output.

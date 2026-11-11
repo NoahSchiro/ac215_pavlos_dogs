@@ -9,11 +9,14 @@ an authenticated gcloud and the Vertex AI API enabled on the project.
 
 import argparse
 import os
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_REGION = "us-east1"
 DEFAULT_BUCKET = "gs://ac215-gaze-data-rh"
 SPEC_PATH = Path(__file__).parent / "gaze_pipeline.json"
+RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
         " defaults to <project>-gaze-models, as deploy/setup-gcp.sh creates it",
     )
     parser.add_argument(
+        "--run-id",
+        help="folder this run's checkpoints go in, under <bucket>/checkpoints/;"
+        " defaults to a new UTC timestamp, so every submission trains fresh."
+        " Reuse an earlier id to let Vertex replay that run from its cache",
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         help="rerun every step; by default Vertex reuses any step whose image"
@@ -69,8 +78,20 @@ def models_bucket_name(arg: str | None, project: str) -> str:
     return (arg or f"{project}-gaze-models").removeprefix("gs://").rstrip("/")
 
 
+def resolve_run_id(arg: str | None, now: datetime | None = None) -> str:
+    """The given run id, checked; otherwise a fresh UTC timestamp like 20261111-153000."""
+    if arg is None:
+        return (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
+    if not RUN_ID_PATTERN.fullmatch(arg) or arg in {".", ".."}:
+        raise SystemExit(
+            f"--run-id must be letters, digits, '.', '_' or '-', got {arg!r}"
+        )
+    return arg
+
+
 def main() -> None:
     args = build_parser().parse_args()
+    run_id = resolve_run_id(args.run_id)
 
     # The image is baked into the compiled spec, so it must be set before the
     # pipeline module is imported.
@@ -107,6 +128,7 @@ def main() -> None:
         parameter_values={
             "data_root": f"/gcs/{args.bucket.removeprefix('gs://')}/MPIIFaceGaze",
             "checkpoint_dir": f"/gcs/{args.bucket.removeprefix('gs://')}/checkpoints",
+            "run_id": run_id,
             "epochs": args.epochs,
             "val_participant": args.val,
             "test_participant": args.test,
@@ -117,7 +139,7 @@ def main() -> None:
         enable_caching=not args.no_cache,
     )
     job.submit()
-    print(f"submitted: {job._dashboard_uri()}")
+    print(f"submitted run {run_id}: {job._dashboard_uri()}")
 
 
 if __name__ == "__main__":
