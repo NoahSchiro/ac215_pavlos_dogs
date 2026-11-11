@@ -25,6 +25,11 @@
 # Note that if we want to use the NVIDIA L4, we don't need to request a quota for that.
 # You get it by default. Note also that the Dockerfile is not configured to use
 # GPU at the moment. That is issue #52.
+#
+# If you want wandb logging, then you need to give GCP your API key:
+#   gcloud secrets create wandb-api-key --data-file=<your-api-key
+#   gcloud secrets add-iam-policy-binding wandb-api-key \
+#    --member "serviceAccount:$SA_EMAIL" --role roles/secretmanager.secretAccessor
 
 set -euo pipefail
 
@@ -42,6 +47,7 @@ JOB_NAME="gaze-train"
 SA_EMAIL="gaze-train@$PROJECT_ID.iam.gserviceaccount.com"
 
 DEVICE="cpu"
+# Add ",--wandb,gaze" to the end of this if you want wandb logging
 TRAIN_ARGS="--workers,8,--device,$DEVICE,--data-root,/data/$DATA_ROOT"
 
 cd "$(dirname "$0")"
