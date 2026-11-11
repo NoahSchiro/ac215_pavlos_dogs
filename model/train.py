@@ -137,6 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    torch.multiprocessing.set_sharing_strategy("file_system")
     args = build_parser().parse_args()
     random.seed(args.seed)
     np.random.seed(args.seed)
