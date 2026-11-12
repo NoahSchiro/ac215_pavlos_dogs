@@ -35,6 +35,10 @@ cd pipeline && uv run submit.py --project $PROJECT --image $IMAGE --epochs 2
 
 - Cloud Build produces linux/amd64, which Vertex requires. The longer timeout
   is because installing PyTorch can outlast the 10-minute default.
+- Building locally and pushing works too. It's native on Linux; on Apple
+  Silicon it needs `--platform`, runs under emulation, and then uploads about
+  10 GB. Run `gcloud auth configure-docker us-east1-docker.pkg.dev` once, then
+  `docker build --platform linux/amd64 -t $IMAGE model && docker push $IMAGE`.
 - `GIT_LFS_SKIP_SMUDGE=1` skips LFS files the build doesn't need.
 - `--epochs 2` demonstrates a logged, reproducible run on CPU. Raise it for a
   model worth deploying.
@@ -111,9 +115,20 @@ it. Pass `--no-cache` to force every step to rerun.
 
 ## Checking a run
 
-`submit.py` prints the job name. Use the **whole** name, for example
-`gaze-training-20261111193400`, not just the number. This prints each step's
-state, its **job id**, and its error:
+Vertex runs each step as a custom job, so the everyday check is the Vertex
+counterpart of `gcloud run jobs list`. It shows the latest steps, their
+states, and the job ids the log command below needs:
+
+```bash
+gcloud ai custom-jobs list --region us-east1 --sort-by ~createTime --limit 4 \
+  --format 'table(name.basename():label=JOB_ID, displayName, state, createTime)'
+```
+
+A run that fails **before any step starts**, such as the
+`metadataStores.get` permission error below, creates no step jobs, so the
+list shows nothing for it. For that case, read the run's own error. Use the
+**whole** job name `submit.py` printed, for example
+`gaze-training-20261111193400`, not just the number:
 
 ```bash
 JOB=gaze-training-20261111193400   # replace with the name submit.py printed

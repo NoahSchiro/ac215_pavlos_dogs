@@ -8,15 +8,20 @@ an authenticated gcloud and the Vertex AI API enabled on the project.
 """
 
 import argparse
-import os
-import re
+import string
 from datetime import UTC, datetime
 from pathlib import Path
+
+from google.cloud import aiplatform
+from kfp import compiler
+
+from gaze_pipeline import PLACEHOLDER_IMAGE, gcs_mount, make_pipeline
 
 DEFAULT_REGION = "us-east1"
 DEFAULT_BUCKET = "gs://ac215-gaze-data-rh"
 SPEC_PATH = Path(__file__).parent / "gaze_pipeline.json"
-RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
+# A run id names a folder, so it must be one plain path segment.
+RUN_ID_CHARS = frozenset(string.ascii_letters + string.digits + "._-")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--image",
         help="training image, e.g."
         " us-east1-docker.pkg.dev/<project>/gaze/gaze-model:latest."
-        " Resolved at compile time, so it is set before the pipeline is imported.",
+        " Written into every step's container spec when the pipeline is built.",
     )
     parser.add_argument(
         "--bucket",
@@ -82,7 +87,7 @@ def resolve_run_id(arg: str | None, now: datetime | None = None) -> str:
     """The given run id, checked; otherwise a fresh UTC timestamp like 20261111-153000."""
     if arg is None:
         return (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
-    if not RUN_ID_PATTERN.fullmatch(arg) or arg in {".", ".."}:
+    if not arg or not set(arg) <= RUN_ID_CHARS or arg in {".", ".."}:
         raise SystemExit(
             f"--run-id must be letters, digits, '.', '_' or '-', got {arg!r}"
         )
@@ -93,17 +98,9 @@ def main() -> None:
     args = build_parser().parse_args()
     run_id = resolve_run_id(args.run_id)
 
-    # The image is baked into the compiled spec, so it must be set before the
-    # pipeline module is imported.
-    if args.image:
-        os.environ["GAZE_IMAGE"] = args.image
-
-    from kfp import compiler
-
-    from gaze_pipeline import IMAGE, gaze_pipeline, gcs_mount
-
-    compiler.Compiler().compile(gaze_pipeline, str(SPEC_PATH))
-    print(f"compiled {SPEC_PATH} using image {IMAGE}")
+    image = args.image or PLACEHOLDER_IMAGE
+    compiler.Compiler().compile(make_pipeline(image), str(SPEC_PATH))
+    print(f"compiled {SPEC_PATH} using image {image}")
 
     if args.compile_only:
         return
@@ -111,10 +108,8 @@ def main() -> None:
         raise SystemExit(
             "--project is required to submit; use --compile-only otherwise"
         )
-    if "PROJECT" in IMAGE:
-        raise SystemExit("--image still contains the PROJECT placeholder")
-
-    from google.cloud import aiplatform
+    if image == PLACEHOLDER_IMAGE or "PROJECT" in image:
+        raise SystemExit("--image is required to submit (got the placeholder)")
 
     aiplatform.init(
         project=args.project,

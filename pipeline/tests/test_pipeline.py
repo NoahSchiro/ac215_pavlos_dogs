@@ -19,23 +19,26 @@ from gaze_pipeline import (
     _EVALUATE_SH,
     _PUBLISH_SH,
     _TRAIN_SH,
-    IMAGE,
-    gaze_pipeline,
     gcs_mount,
+    make_pipeline,
 )
 from submit import models_bucket_name, resolve_run_id
 
 Spec = dict[str, Any]
 
 ROOT = Path(__file__).resolve().parents[1]
+TEST_IMAGE = "example.dev/gaze/gaze-model:test"
+
+
+def compile_spec(image: str, out: Path) -> Spec:
+    compiler.Compiler().compile(make_pipeline(image), str(out))
+    loaded: Spec = json.loads(out.read_text())
+    return loaded
 
 
 @pytest.fixture(scope="module")
 def spec(tmp_path_factory: pytest.TempPathFactory) -> Spec:
-    out = tmp_path_factory.mktemp("spec") / "pipeline.json"
-    compiler.Compiler().compile(gaze_pipeline, str(out))
-    loaded: Spec = json.loads(out.read_text())
-    return loaded
+    return compile_spec(TEST_IMAGE, tmp_path_factory.mktemp("spec") / "pipeline.json")
 
 
 def test_pipeline_compiles_with_the_expected_steps(spec: Spec) -> None:
@@ -47,8 +50,12 @@ def test_pipeline_compiles_with_the_expected_steps(spec: Spec) -> None:
     ]
 
 
-def test_steps_run_in_order(spec: Spec) -> None:
-    """Training must not start before the cache exists, nor evaluation before training."""
+def test_spec_orders_the_steps(spec: Spec) -> None:
+    """The spec Vertex executes declares each step's predecessor.
+
+    This checks the contract, not execution: running the steps in this order
+    is Vertex's job, and the green run's graph shows it did.
+    """
     tasks = spec["root"]["dag"]["tasks"]
     assert tasks["preprocess-op"].get("dependentTasks", []) == []
     assert tasks["train-op"]["dependentTasks"] == ["preprocess-op"]
@@ -56,12 +63,16 @@ def test_steps_run_in_order(spec: Spec) -> None:
     assert tasks["publish-op"]["dependentTasks"] == ["evaluate-op"]
 
 
-def test_every_step_uses_the_repository_image(spec: Spec) -> None:
-    """No step may introduce its own image: the pipeline orders work, it does
-    not reimplement it."""
+def test_spec_names_one_image_for_every_step(spec: Spec) -> None:
+    """Every step's container spec names the image the pipeline was built with.
+
+    That the image is the one `model/Dockerfile` builds is up to whoever
+    builds it; the green run used gaze-model:<commit>, tagged by the README's
+    build command.
+    """
     containers = spec["deploymentSpec"]["executors"]
     images = {e["container"]["image"] for e in containers.values()}
-    assert images == {IMAGE}
+    assert images == {TEST_IMAGE}
 
 
 def test_training_flags_mirror_the_cli(spec: Spec) -> None:
@@ -106,18 +117,13 @@ def test_gcs_mount_rejects_a_non_bucket_uri() -> None:
         gcs_mount("/local/path")
 
 
-def test_image_is_overridable_from_the_environment() -> None:
-    """submit.py sets GAZE_IMAGE before import, because KFP bakes the image
-    into the compiled spec rather than taking it as a runtime parameter."""
-    result = subprocess.run(
-        [sys.executable, "-c", "import gaze_pipeline; print(gaze_pipeline.IMAGE)"],
-        cwd=ROOT,
-        env={**os.environ, "GAZE_IMAGE": "example.dev/custom:v2"},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert result.stdout.strip() == "example.dev/custom:v2"
+def test_the_image_is_an_argument_not_global_state(tmp_path: Path) -> None:
+    """Two pipelines built in one process each keep their own image."""
+    a = compile_spec("example.dev/a:1", tmp_path / "a.json")
+    b = compile_spec("example.dev/b:2", tmp_path / "b.json")
+    for built, image in ((a, "example.dev/a:1"), (b, "example.dev/b:2")):
+        executors = built["deploymentSpec"]["executors"].values()
+        assert {e["container"]["image"] for e in executors} == {image}
 
 
 def test_submit_compile_only_needs_no_credentials(tmp_path: Path) -> None:
@@ -133,7 +139,7 @@ def test_submit_compile_only_needs_no_credentials(tmp_path: Path) -> None:
 
 
 def test_submit_refuses_the_placeholder_image() -> None:
-    """The default image still says PROJECT; submitting it would fail opaquely."""
+    """Without --image the spec names a placeholder; submitting it would fail opaquely."""
     result = subprocess.run(
         [sys.executable, "submit.py", "--project", "some-project"],
         cwd=ROOT,
@@ -142,7 +148,7 @@ def test_submit_refuses_the_placeholder_image() -> None:
         check=False,
     )
     assert result.returncode != 0
-    assert "PROJECT placeholder" in result.stderr
+    assert "--image is required" in result.stderr
 
 
 RUN = "20261111-090000"  # a pipeline run id, as submit.py makes them
