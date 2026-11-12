@@ -1,14 +1,15 @@
 # MS3 objectives
-1. Advanced Training Workflows
+## Advanced Training Workflows
     
-* Experiment tracking using Weights & Biases (W&B) or an equivalent tool.
+* **Requirement**: Experiment tracking using Weights & Biases (W&B) or an equivalent
+tool.
 
 ![Our wandb project directory showing many runs we have used to train our
 model](./assets/wandb.png)
 
-* Serverless training on Vertex AI (or documented equivalent), with at least one
-training run logged and reproducible (one successful run is sufficient; multiple
-experiments are encouraged but not required).
+* **Requirement**: Serverless training on Vertex AI (or documented equivalent), with
+at least one training run logged and reproducible (one successful run is sufficient;
+multiple experiments are encouraged but not required).
 
 This is possible by using the script in `./model/deploy.sh`. There are a few one
 time setup CLI calls you need to make, you need to move your data up into a
@@ -27,13 +28,13 @@ You can also see the logs there:
 
 ![Job with logs](./assets/job_running_with_logs.png)
 
-* If applicable: multi-GPU training or distributed training setup.
+* **Requirement**: If applicable: multi-GPU training or distributed training setup.
 
 Not applicable in our case. The model can be trained on a single 12GB GPU.
 
-2. Serverless Deployment
+## Serverless Deployment
 
-* Deploy your model or API using Cloud Functions or Cloud Run.
+* **Requirement**: Deploy your model or API using Cloud Functions or Cloud Run.
 
 Note that our project does not require a backend API, as the model runs in the
 browser. However, in order for the model to be deployed to the browser, it needs
@@ -42,14 +43,14 @@ in `./model/deploy.sh` that the model weights are dropped into a "results" bucke
 at the end of training. It is then trivial to hook up a CDN to fetch these weights,
 though the CDN is not in scope of this milestone.
 
-* The service should be publicly accessible or accessible to the teaching staff
-(if you have concerns about public access, discuss authentication options with
-your TF).
+* **Requirement**: The service should be publicly accessible or accessible to the
+teaching staff (if you have concerns about public access, discuss authentication
+options with your TF).
 
 There is no backend API or service to be accessed. The frontend can be accessed
 [here](https://gaze-maze-565330594360.us-east1.run.app/).
 
-* Document the deployment configuration and how to redeploy.
+* **Requirement**: Document the deployment configuration and how to redeploy.
 
 The deployment is documented throughly in `./model/deploy.sh` but we will relay
 it here:
@@ -117,22 +118,29 @@ ensure that any updates to our training code is reflected in the run. Take note
 that the training container handles preprocessing, training, evaluation, and 
 places our model weights in a place that is consumable by the future CDN.
 
-3. ML Workflows with Vertex AI
-* At least one automated ML pipeline or workflow using Vertex AI Pipelines or equivalent.
+Once that job completes, you will see the run artifacts populate in your results
+bucket:
+
+![Run results](./assets/run_output.png)
+
+## ML Workflows with Vertex AI
+* **Requirement**: At least one automated ML pipeline or workflow using Vertex AI
+Pipelines or equivalent.
 
 The training job detailed above.
 
-* Workflow should cover data preprocessing, model training, and/or evaluation steps.
+* **Requirement**: Workflow should cover data preprocessing, model training,
+and/or evaluation steps.
 
 The training container handles preprocessing, training, evaluation, and 
 places our model weights in a place that is consumable by the future CDN.
 Launching it to cloud run and letting it run there handles everything for
 us.
 
-4. Production Monitoring
-* Basic monitoring in place: logging, error tracking, and/or performance metrics
-(at minimum, implement logging with Cloud Logging or equivalent and document how
-to access logs).
+## Production Monitoring
+* **Requirement**: Basic monitoring in place: logging, error tracking, and/or
+performance metrics (at minimum, implement logging with Cloud Logging or
+equivalent and document how to access logs).
 
 GCP can do a lot of this for us since Cloud Logging exists. This is accessible
 in Cloud Run by clicking "view logs." It looks like this:
@@ -155,7 +163,8 @@ for our Job, see the screenshot of the cloud logging.
 
 Of course, another option is to access W&B, if you chose to use that.
 
-* Document what is being monitored and how to access logs or dashboards.
+* **Requirement**: Document what is being monitored and how to access logs or
+dashboards.
 
 Any argument that is passed into the training script is logged
 * `batch_size`: batch size
@@ -210,33 +219,37 @@ At the end of a run, we also log:
 
 These logs can be found either in GCP, via `gcloud` CLI, or in W&B
 
-5. Working API
+## Working API
 
 Not applicable for our project. The frontend can be accessed
 [here](https://gaze-maze-565330594360.us-east1.run.app/).
 
 # Deliverables:
-1. Code Submission
-* All code for the components above, well-organized and documented. 
+
+## Code Submission
+* **Requirement**: All code for the components above, well-organized and documented. 
 
 This repo. :)
 
-* Any additions or modifications relative to Milestone 2 must be highlighted in the README.md file. 
+* **Requirement**: Any additions or modifications relative to Milestone 2 must be
+highlighted in the README.md file. 
 
 None.
 
-2. README.md
+## README.md
 
-* How to reproduce training runs (experiment tracking setup, Vertex AI job configuration).
+* **Requirement**: How to reproduce training runs (experiment tracking setup,
+Vertex AI job configuration).
 
 A lot of the instructions can be found above, but broadly, configure your GCP to have the right
 names, modify the `./model/deploy.sh` script to point at your resources, run it.
 
-* How to deploy the service (Cloud Functions/Cloud Run config and commands).
+* **Requirement**: How to deploy the service (Cloud Functions/Cloud Run config
+and commands).
 
 Run `./model/deploy.sh`
 
-* How to run the ML pipeline.
+* **Requirement**: How to run the ML pipeline.
 
 Run `./model/deploy.sh`
 
@@ -245,14 +258,15 @@ How to access the API (endpoints and example calls).
 None. The frontend is accessible here: https://gaze-maze-565330594360.us-east1.run.app/. You
 access it from a supported browser (see `ui/README.md`).
 
-3. Evidence of a Running System
+## Evidence of a Running System
 
 Include screenshots showing:
-* A training run tracked in W&B (or equivalent).
+* **Requirement**: A training run tracked in W&B (or equivalent).
 
 See above screenshot.
 
-* The deployed service responding to a request (e.g., a curl call screenshot showing the response).
+* **Requirement**: The deployed service responding to a request (e.g., a curl call
+screenshot showing the response).
 
 ```bash
 curl https://gaze-maze-565330594360.us-east1.run.app/
