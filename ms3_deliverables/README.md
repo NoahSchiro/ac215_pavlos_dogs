@@ -5,7 +5,9 @@
 tool.
 
 ![Our wandb project directory showing many runs we have used to train our
-model](./assets/wandb.png)
+model](./assets/wandb.png).
+
+W&B runs can be found [here](https://forge.coreweave.com/wandb/noahschiro-harvard-university/gaze?nw=nwusernoahschiro).
 
 * **Requirement**: Serverless training on Vertex AI (or documented equivalent), with
 at least one training run logged and reproducible (one successful run is sufficient;
@@ -38,10 +40,12 @@ Not applicable in our case. The model can be trained on a single 12GB GPU.
 
 Note that our project does not require a backend API, as the model runs in the
 browser. However, in order for the model to be deployed to the browser, it needs
-to be dropped into a bucket so that a CDN can deliver it to users. You'll note
-in `./model/deploy.sh` that the model weights are dropped into a "results" bucket
+to be dropped into a bucket so that a CDN can deliver it to users. In
+`./model/deploy.sh`, the model weights are dropped into a "results" bucket
 at the end of training. It is then trivial to hook up a CDN to fetch these weights,
 though the CDN is not in scope of this milestone.
+
+The frontend can be deployed using the instructions in `/deploy/README.md`
 
 * **Requirement**: The service should be publicly accessible or accessible to the
 teaching staff (if you have concerns about public access, discuss authentication
@@ -49,6 +53,8 @@ options with your TF).
 
 There is no backend API or service to be accessed. The frontend can be accessed
 [here](https://gaze-maze-565330594360.us-east1.run.app/).
+
+The frontend can be deployed using the instructions in `/deploy/README.md`.
 
 * **Requirement**: Document the deployment configuration and how to redeploy.
 
@@ -122,6 +128,8 @@ Once that job completes, you will see the run artifacts populate in your results
 bucket:
 
 ![Run results](./assets/run_output.png)
+
+The frontend can be run using the instructions in `/deploy/README.md`.
 
 ## ML Workflows with Vertex AI
 * **Requirement**: At least one automated ML pipeline or workflow using Vertex AI
@@ -224,6 +232,8 @@ These logs can be found either in GCP, via `gcloud` CLI, or in W&B
 Not applicable for our project. The frontend can be accessed
 [here](https://gaze-maze-565330594360.us-east1.run.app/).
 
+Instructions for deploying that frontend can be found at `./deploy/README.md`
+
 # Deliverables:
 
 ## Code Submission
@@ -247,16 +257,17 @@ names, modify the `./model/deploy.sh` script to point at your resources, run it.
 * **Requirement**: How to deploy the service (Cloud Functions/Cloud Run config
 and commands).
 
-Run `./model/deploy.sh`
+Run `./model/deploy.sh` for the training. Follow the instructions in
+`./deploy/README.md` for the frontend
 
 * **Requirement**: How to run the ML pipeline.
 
 Run `./model/deploy.sh`
 
-How to access the API (endpoints and example calls).
+* **Requirement**: How to access the API (endpoints and example calls).
 
 None. The frontend is accessible here: https://gaze-maze-565330594360.us-east1.run.app/. You
-access it from a supported browser (see `ui/README.md`).
+access it from a supported browser (see `ui/README.md` for supported browsers).
 
 ## Evidence of a Running System
 
