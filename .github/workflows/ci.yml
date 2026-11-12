@@ -23,6 +23,12 @@ jobs:
       - run: uv run mypy .
       - run: uv run ruff check .
       - run: uv run pytest --cov=. --cov-fail-under=70
+      # The TypeScript port in ui/src/vision is checked against fixtures
+      # recorded from this pipeline. Regenerate them here and fail if they
+      # have drifted, so preprocessing cannot change without the browser's
+      # reference changing with it.
+      - name: Parity fixtures are current
+        run: uv run python tools/gen_parity_fixtures.py --check
 
   ui:
     name: ui (build + test)
