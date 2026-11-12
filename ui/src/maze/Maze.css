@@ -2,13 +2,15 @@
 .maze {
   display: grid;
 
-  /* Scale the maze to fit the available space while keeping it square. */
-  width: min(94vw, calc(100dvh - 100px));
+  /* Size is controlled by config.ts through --maze-size. */
+  width: var(--maze-size);
   max-width: 100%;
   aspect-ratio: 1;
 
-  margin: 0 auto;
+  margin: 0;
   position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .maze-cell {
@@ -88,7 +90,7 @@
     0 0 0 8px #383047;
 }
 
-/* Use the available screen height for the maze and navigation button. */
+/* Use the available screen height for the maze and navigation buttons. */
 .maze-screen {
   min-height: 100dvh;
   box-sizing: border-box;
@@ -98,75 +100,90 @@
   justify-content: safe center;
   gap: 20px;
   padding: 16px;
+  position: relative;
 }
 
-/* Keep the back button centered below the maze. */
 .maze-screen > button {
   flex-shrink: 0;
 }
 
-/* Compact victory box positioned beside the maze. */
+/* Responsive layout: controls | maze | victory message. */
 .maze-layout {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   gap: 16px;
   width: 100%;
   min-width: 0;
 }
 
-.maze-layout .maze {
-  flex: 0 1 auto;
-  width: min(94vw, calc(100dvh - 100px));
-  margin: 0;
+/* Both side columns share the available space. */
+.maze-side-buttons,
+.maze-win {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
-.maze-layout:has(.maze-win) .maze {
-  width: min(
-    calc(100vw - 300px),
-    calc(100dvh - 100px)
-  );
+/* Keep the maze centered before the victory message appears. */
+.maze-layout:not(:has(.maze-win))::after {
+  content: '';
+  flex: 1 1 0;
+  min-width: 0;
 }
 
+/* Victory message — no background box or outline. */
 .maze-win {
   position: static;
-  flex: 0 0 auto;
-  width: 220px;
+  transform: none;
+  z-index: 10;
+
   box-sizing: border-box;
 
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 12px;
+  padding: 20px 8px;
 
-  background: var(--bg);
-  border: 2px solid var(--maze-wall);
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  background: transparent;
+  border: none;
+  border-radius: 16px;
+  box-shadow: none;
   text-align: center;
+}
+
+.maze-win-trophy {
+  font-size: 32px;
+  line-height: 1;
+  margin-bottom: 4px;
 }
 
 .maze-win h2 {
   margin: 0;
-  font-size: 16px;
-  line-height: 1.3;
+  color: #57416b;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.maze-win p {
+  margin: 0 0 10px;
+  color: #756782;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+:root[data-theme='dark'] .maze-win h2 {
+  color: #ffffff;
+}
+
+:root[data-theme='dark'] .maze-win p {
+  color: #c5bbd0;
 }
 
 .maze-win button {
   padding: 6px 10px;
   font-size: 14px;
-}
-
-@media (max-width: 650px) {
-  .maze-layout {
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .maze-layout:has(.maze-win) .maze {
-    width: min(94vw, calc(100dvh - 100px));
-  }
 }
 
 /* Shared arcade-style buttons for the maze screen. */
@@ -196,7 +213,6 @@
     box-shadow 150ms ease;
 }
 
-/* Lighter green indicates the button is ready to click. */
 .game-button:hover {
   background: #4caf68;
   border-color: #287543;
@@ -204,20 +220,17 @@
   transform: translateY(-2px);
 }
 
-/* Give the button a pressed-down effect when clicked. */
 .game-button:active {
   background: #246b3c;
   transform: translateY(2px);
   border-bottom-width: 2px;
 }
 
-/* Make keyboard navigation clearly visible. */
 .game-button:focus-visible {
   outline: 3px solid #a7e8b8;
   outline-offset: 4px;
 }
 
-/* Dark mode: slightly brighter green buttons. */
 :root[data-theme='dark'] .game-button {
   background: #268b48;
   border-color: #145b2d;
@@ -241,5 +254,57 @@
   .game-button:hover,
   .game-button:active {
     transform: none;
+  }
+}
+
+/* Center the controls within the left flex column. */
+.maze-side-buttons {
+  position: static;
+  transform: none;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+
+  z-index: 10;
+}
+
+.maze-side-buttons .back-button {
+  width: 100%;
+  max-width: 180px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.maze-side-buttons p {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Stack controls, maze, and victory message on smaller screens. */
+@media (max-width: 900px) {
+  .maze-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .maze-side-buttons,
+  .maze-win {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 260px;
+  }
+
+  .maze-layout:not(:has(.maze-win))::after {
+    display: none;
+  }
+
+  .maze {
+    width: var(--maze-size);
+    max-width: 100%;
+    flex: 0 1 auto;
   }
 }
