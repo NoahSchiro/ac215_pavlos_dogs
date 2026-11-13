@@ -244,7 +244,11 @@ This repo. :)
 * **Requirement**: Any additions or modifications relative to Milestone 2 must be
 highlighted in the README.md file. 
 
-None.
+The following features have been added since Milestone 2:
+
+- Implemented nine-point gaze calibration to fit a personal ridge regression correction.
+- Integrated calibrated predictions into maze controls before Kalman smoothing, with locally saved parameters and no stored images.
+- Added a four-point accuracy check to compare predictions before and after calibration.
 
 ## README.md
 
