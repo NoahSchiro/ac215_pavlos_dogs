@@ -126,7 +126,7 @@ This executes the job. Technically, we only need to do these last two steps for
 the pipeline, but by rebuilding and deploying our docker container on every run, we
 ensure that any updates to our training code is reflected in the run. Take note
 that the training container handles preprocessing, training, evaluation, and 
-places our model weights in a place that is consumable by the future CDN.
+places our model weights in a place that is consumable by the deploy/publish-model.sh.
 
 Once that job completes, you will see the run artifacts populate in your results
 bucket:
@@ -145,7 +145,7 @@ The training job detailed above.
 and/or evaluation steps.
 
 The training container handles preprocessing, training, evaluation, and 
-places our model weights in a place that is consumable by the future CDN.
+places our model weights in a place that is consumable by the deploy/publish-model.sh.
 Launching it to cloud run and letting it run there handles everything for
 us.
 
