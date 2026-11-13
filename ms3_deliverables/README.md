@@ -5,7 +5,7 @@
 tool.
 
 ![Our wandb project directory showing many runs we have used to train our
-model](./assets/wandb.png).
+model](./assets/wandb.png)
 
 W&B runs can be found [here](https://forge.coreweave.com/wandb/noahschiro-harvard-university/gaze?nw=nwusernoahschiro).
 
@@ -13,7 +13,23 @@ W&B runs can be found [here](https://forge.coreweave.com/wandb/noahschiro-harvar
 at least one training run logged and reproducible (one successful run is sufficient;
 multiple experiments are encouraged but not required).
 
-This is possible by using the script in `./model/deploy.sh`. There are a few one
+We are using Cloud Run instead of Vertex AI for several reasons. In
+general, Vertex AI is built for heavy training workloads, distributed runs, and
+long running sessions. Our model has none of these characteristics. It is fairly
+small and lightweight, trains within 15 minutes (on GPU), and can fit on 12GB
+of VRAM. For this reason, Vertex AI is typically "overkill" for such a training
+job.
+
+Cloud Run Jobs comes with many benefits over Vertex AI training:
+* Faster start up times (a few seconds vs Vertex's 2-5 minutes)
+* Simpler, with less management overhead
+* Cheaper (because the start up time is so fast; on Vertex, you have to pay for
+the 2-5 minute cold start).
+
+For the remainder of this document, anywhere "Vertex AI" is used, assume we instead
+mean this documented equivalent service.
+
+Our deploy to Cloud Run is done using `./model/deploy.sh`. There are a few one
 time setup CLI calls you need to make, you need to move your data up into a
 bucket, specify where your data is, and where your results will go, etc. This will
 always be specific to a user/project. However, the spirit of this pipeline is that
@@ -46,8 +62,9 @@ non-streamed, non-chunked HTTP/1 responses. We can switch model versions or roll
 back by changing `MODEL_URL` without rebuilding the app image.
 
 At the end of training, `./model/deploy.sh` writes the model weights to a results
-bucket. To publish a new model, copy it into the public models bucket under a new
-version folder and update `MODEL_URL`.
+bucket. This bucket can be configured to put the model directly where the frontend can
+access it, but as it is not an explicit requirement of this milestone, we have left that
+for a later date.
 
 The frontend can be deployed using the instructions in [`deploy/README.md`](../deploy/README.md).
 
@@ -232,8 +249,8 @@ At the end of a run, we also log:
 These logs can be found either in GCP, via `gcloud` CLI, or in W&B
 
 The deployed Gaze Maze website sends summaries of gaze tracking to Cloud Logging. 
-To find them, open **Logs Explorer** in the app's Google Cloud project `nodal-magnet-509121-i1` and
-run this filter:
+To find them, open **Logs Explorer** in the app's Google Cloud project
+`nodal-magnet-509121-i1` and run this filter:
 
 ```text
 resource.type="cloud_run_revision"
@@ -275,6 +292,8 @@ The following features have been added since Milestone 2:
 - Integrated calibrated predictions into maze controls before Kalman smoothing, with locally saved parameters and no stored images.
 - Added a four-point accuracy check to compare predictions before and after calibration.
 - Deployed the Gaze Maze app as a public Cloud Run service.
+- Configured the train script to emit an ONNX model (`.onnx`) as well as native PyTorch models (`.pt`).
+- Replicated the python data preprocessing and inference code in TypeScript to achieve training/inference parity.
 - Hosted the 46 MB ONNX model in Cloud Storage at a versioned URL. The browser reads `MODEL_URL` from `/config.json` at runtime and downloads the model directly, keeping the download outside Cloud Run’s 32 MiB limit for non-streamed, non-chunked HTTP/1 responses. Changing `MODEL_URL` lets us switch or roll back model versions without rebuilding the app image.
 - Added production monitoring that sends aggregate gaze-tracking summaries to Cloud Logging every 30 seconds during gameplay. Each summary includes tracking rate, per-frame processing latency, failure counts, and model version. Webcam images and gaze coordinates stay in the browser.
 - Configured four log-based metrics in Cloud Monitoring for tracking rate, inference latency, model-load errors, and session counts. Added an alert policy for model-load failures.
@@ -297,7 +316,7 @@ Run `./model/deploy.sh` for the training. Follow the instructions in
 
 * **Requirement**: How to run the ML pipeline.
 
-Run `./model/deploy.sh`
+Run `./model/deploy.sh` after following the one-time setup instructions in `./model/deploy.sh`
 
 * **Requirement**: How to access the API (endpoints and example calls).
 
