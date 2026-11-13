@@ -2,6 +2,12 @@
 
 This repo tracks the progress of the final project for AC215 @ Harvard for Fall 2026.
 
+## Milestone 3
+
+- [Milestone 3 submission and evidence](./ms3_deliverables/README.md)
+- [Live Gaze Maze app](https://gaze-maze-565330594360.us-east1.run.app/)
+- [Deployment and monitoring guide](./deploy/README.md)
+
 ## Proposal
 
 `./proposal/`

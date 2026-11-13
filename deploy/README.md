@@ -1,8 +1,8 @@
 # Deploying the app: Cloud Run, a published model, production monitoring
 
 ```
- Vertex AI pipeline  ──publish──▶  gs://MODELS_BUCKET/models/<version>/gazenet.onnx   (public, CORS)
- (or publish-model.sh)                         ▲
+ deploy/publish-model.sh  ──publish──▶  gs://MODELS_BUCKET/models/<version>/gazenet.onnx   (public, CORS)
+                                               ▲
                                                │ browser fetches the model directly
  Cloud Run service "gaze-maze" ──serves UI──▶ browser ── runs the model on the webcam, locally
    nginx, MODEL_URL=<that URL>                 │
@@ -28,8 +28,7 @@ files. That decides most of what follows:
   page loads, never whether gaze tracking works. The UI beacons per-session
   aggregates, which become metrics (below).
 
-Region is `us-east1` throughout, matching `pipeline/submit.py`. Keep Artifact
-Registry, Vertex AI, the buckets and Cloud Run together.
+The Cloud Run training job and the deployed Gaze Maze app both use `us-east1`.
 
 ## One-time setup
 
@@ -42,26 +41,26 @@ deploy/setup-gcp.sh
 export MODELS_BUCKET=$PROJECT-gaze-models REGION=us-east1
 ```
 
-This creates the Artifact Registry repo, and a **public-read** bucket for
-published models with CORS so browsers may fetch from it. It also gives
-Vertex AI's service account write access to that bucket.
+This creates the Artifact Registry repository and a public-read Cloud Storage
+bucket for published models. The bucket is configured with CORS so browsers
+can download the models directly.
 
 Only models go in that bucket. **Never make the data bucket public:**
 GazeCapture's license forbids redistributing the dataset.
 
 ## Publish a model
 
-Each version lives at `models/<version>/gazenet.onnx` with its `metrics.json`,
-and is never overwritten. That's what makes caching it forever and rolling
-back to it safe.
+Run cloud training with [`model/deploy.sh`](../model/deploy.sh). The Cloud Run
+Job writes its training outputs to the results bucket. Download the completed
+run directory containing `best.onnx`, or use the directory from a local run.
 
-- **From the Vertex pipeline:** the pipeline's last step publishes the run it
-  trained and logs the resulting `MODEL_URL` (see `pipeline/README.md`).
-- **From a local training run:**
-  ```bash
-  deploy/publish-model.sh model/checkpoints/20261107-120000
-  # prints MODEL_URL=https://storage.googleapis.com/<bucket>/models/20261107-120000/gazenet.onnx
-  ```
+From the repository root, publish the model to your configured models bucket:
+
+```bash
+deploy/publish-model.sh /path/to/completed-run
+```
+
+Use the `MODEL_URL` printed by the script in the deployment command below.
 
 ## Deploy
 
