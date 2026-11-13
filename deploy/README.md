@@ -51,17 +51,17 @@ GazeCapture's license forbids redistributing the dataset.
 
 ## Publish a model
 
-Each version lives at `models/<version>/gazenet.onnx` with its `metrics.json`,
-and is never overwritten. That's what makes caching it forever and rolling
-back to it safe.
+Run cloud training with [`model/deploy.sh`](../model/deploy.sh). The Cloud Run
+Job writes its training outputs to the results bucket. Download the completed
+run directory containing `best.onnx`, or use the directory from a local run.
 
-- **From the Vertex pipeline:** the pipeline's last step publishes the run it
-  trained and logs the resulting `MODEL_URL` (see `pipeline/README.md`).
-- **From a local training run:**
-  ```bash
-  deploy/publish-model.sh model/checkpoints/20261107-120000
-  # prints MODEL_URL=https://storage.googleapis.com/<bucket>/models/20261107-120000/gazenet.onnx
-  ```
+From the repository root, publish the model to your configured models bucket:
+
+```bash
+deploy/publish-model.sh /path/to/completed-run
+```
+
+Use the `MODEL_URL` printed by the script in the deployment command below.
 
 ## Deploy
 
