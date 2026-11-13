@@ -274,6 +274,12 @@ The following features have been added since Milestone 2:
 - Implemented nine-point gaze calibration to fit a personal ridge regression correction.
 - Integrated calibrated predictions into maze controls before Kalman smoothing, with locally saved parameters and no stored images.
 - Added a four-point accuracy check to compare predictions before and after calibration.
+- Deployed the Gaze Maze app as a public Cloud Run service.
+- Hosted the 46 MB ONNX model in Cloud Storage at a versioned URL. The browser reads `MODEL_URL` from `/config.json` at runtime and downloads the model directly, keeping the download outside Cloud Run’s 32 MiB limit for non-streamed, non-chunked HTTP/1 responses. Changing `MODEL_URL` lets us switch or roll back model versions without rebuilding the app image.
+- Added production monitoring that sends aggregate gaze-tracking summaries to Cloud Logging every 30 seconds during gameplay. Each summary includes tracking rate, per-frame processing latency, failure counts, and model version. Webcam images and gaze coordinates stay in the browser.
+- Configured four log-based metrics in Cloud Monitoring for tracking rate, inference latency, model-load errors, and session counts. Added an alert policy for model-load failures.
+- Added a Kalman filter to smooth frame-by-frame gaze predictions and reduce jitter during gameplay.
+- Added a live crosshair that shows where the game estimates the player is looking. The crosshair and maze controls use the same smoothed gaze prediction.
 
 ## README.md
 
