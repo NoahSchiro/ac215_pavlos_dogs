@@ -39,13 +39,17 @@ Not applicable in our case. The model can be trained on a single 12GB GPU.
 * **Requirement**: Deploy your model or API using Cloud Functions or Cloud Run.
 
 Note that our project does not require a backend API, as the model runs in the
-browser. However, in order for the model to be deployed to the browser, it needs
-to be dropped into a bucket so that a CDN can deliver it to users. In
-`./model/deploy.sh`, the model weights are dropped into a "results" bucket
-at the end of training. It is then trivial to hook up a CDN to fetch these weights,
-though the CDN is not in scope of this milestone.
+browser. Cloud Run serves the Gaze Maze app. The browser downloads the 46 MB ONNX model
+directly from a versioned, public Cloud Storage URL and runs gaze prediction
+locally. This keeps the model download outside Cloud Run's 32 MiB limit for
+non-streamed, non-chunked HTTP/1 responses. We can switch model versions or roll
+back by changing `MODEL_URL` without rebuilding the app image.
 
-The frontend can be deployed using the instructions in `/deploy/README.md`
+At the end of training, `./model/deploy.sh` writes the model weights to a results
+bucket. To publish a new model, copy it into the public models bucket under a new
+version folder and update `MODEL_URL`.
+
+The frontend can be deployed using the instructions in [`deploy/README.md`](../deploy/README.md).
 
 * **Requirement**: The service should be publicly accessible or accessible to the
 teaching staff (if you have concerns about public access, discuss authentication
@@ -227,6 +231,27 @@ At the end of a run, we also log:
 
 These logs can be found either in GCP, via `gcloud` CLI, or in W&B
 
+The deployed Gaze Maze website sends summaries of gaze tracking to Cloud Logging. 
+To find them, open **Logs Explorer** in the app's Google Cloud project `nodal-magnet-509121-i1` and
+run this filter:
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="gaze-maze"
+jsonPayload.type="gaze_telemetry"
+```
+
+![Live app logs in Cloud Logging](./assets/live-app-logs.png)
+
+*Logs Explorer shows multiple reports from the deployed app.*
+
+![Expanded gaze tracking log entry](./assets/gaze-tracking-log-detail.png)
+
+*In this reporting window, 100% of frames tracked successfully, and average
+processing time was about 108 ms per frame. Each report includes the model
+version, so we can compare tracking rates and latency across versions during
+actual gameplay. Webcam images stay in the browser.*
+
 ## Working API
 
 Not applicable for our project. The frontend can be accessed
@@ -300,3 +325,9 @@ curl https://gaze-maze-565330594360.us-east1.run.app/
   </body>
 </html>
 ```
+Requesting `/config.json` returns HTTP 200 and tells the browser where to download the gaze model:
+
+![Deployed app returning HTTP 200](./assets/deployed-app-response.png)
+
+*The deployed Cloud Run service returns HTTP 200 for `/config.json`, which
+tells the browser where to download the gaze model.*
