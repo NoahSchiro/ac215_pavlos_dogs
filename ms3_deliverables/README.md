@@ -46,8 +46,9 @@ non-streamed, non-chunked HTTP/1 responses. We can switch model versions or roll
 back by changing `MODEL_URL` without rebuilding the app image.
 
 At the end of training, `./model/deploy.sh` writes the model weights to a results
-bucket. To publish a new model, copy it into the public models bucket under a new
-version folder and update `MODEL_URL`.
+bucket. To publish a new model, run `deploy/publish-model.sh`, which copies it into
+the public models bucket under a new version folder and prints the `MODEL_URL` to
+deploy with.
 
 The frontend can be deployed using the instructions in [`deploy/README.md`](../deploy/README.md).
 
@@ -55,10 +56,8 @@ The frontend can be deployed using the instructions in [`deploy/README.md`](../d
 teaching staff (if you have concerns about public access, discuss authentication
 options with your TF).
 
-There is no backend API or service to be accessed. The frontend can be accessed
-[here](https://gaze-maze-565330594360.us-east1.run.app/).
-
-The frontend can be deployed using the instructions in `/deploy/README.md`.
+There is no backend API or service to be accessed. The frontend is publicly
+accessible [here](https://gaze-maze-565330594360.us-east1.run.app/).
 
 * **Requirement**: Document the deployment configuration and how to redeploy.
 
@@ -108,10 +107,12 @@ gcloud run jobs deploy "$JOB_NAME" \
   --service-account "$SA_EMAIL" \
   --cpu 8 --memory 16Gi \
   --task-timeout=4h \
-  --add-volume=" " \ # mounts the data bucket
-  --add-volume=" " \ # mounts the results bucket
+  --add-volume="mount-path=/data,type=cloud-storage,bucket=$DATA_BUCKET" \
+  --add-volume="mount-path=/app/checkpoints,type=cloud-storage,bucket=$RESULTS_BUCKET,readonly=false" \
   --args="$TRAIN_ARGS"
 ```
+
+The two `--add-volume` flags mount the data bucket and the results bucket into the container.
 
 Note that through `TRAIN_ARGS`, we can run any kind of job we want. We can also
 configure things like W&B or where our logs go and what format they live in.
@@ -124,16 +125,16 @@ gcloud run jobs execute "$JOB_NAME" --region "$REGION"
 
 This executes the job. Technically, we only need to do these last two steps for
 the pipeline, but by rebuilding and deploying our docker container on every run, we
-ensure that any updates to our training code is reflected in the run. Take note
-that the training container handles preprocessing, training, evaluation, and 
-places our model weights in a place that is consumable by the deploy/publish-model.sh.
+ensure that any updates to our training code are reflected in the run. Take note that
+the training container handles preprocessing, training, and evaluation, and writes
+our model weights to the results bucket, where `deploy/publish-model.sh`
+can publish them to the public models bucket the app loads from.
 
 Once that job completes, you will see the run artifacts populate in your results
 bucket:
 
 ![Run results](./assets/run_output.png)
 
-The frontend can be run using the instructions in `/deploy/README.md`.
 
 ## ML Workflows with Vertex AI
 * **Requirement**: At least one automated ML pipeline or workflow using Vertex AI
@@ -144,10 +145,9 @@ The training job detailed above.
 * **Requirement**: Workflow should cover data preprocessing, model training,
 and/or evaluation steps.
 
-The training container handles preprocessing, training, evaluation, and 
-places our model weights in a place that is consumable by the deploy/publish-model.sh.
-Launching it to cloud run and letting it run there handles everything for
-us.
+The training container handles preprocessing, training, and evaluation, and
+writes our model weights to the results bucket, where `deploy/publish-model.sh`
+can publish them to the public models bucket the app loads from.
 
 ## Production Monitoring
 * **Requirement**: Basic monitoring in place: logging, error tracking, and/or
@@ -227,7 +227,7 @@ At the end of a run, we also log:
 * `test_median_calibrated`: same but with ridge regression (if used)
 * `test_p95`: test error for the 95th percentile
 * `test_p95_calibrated`: same but with ridge regression (if used)
-* `train_loss`: test loss
+* `train_loss`: train loss
 
 These logs can be found either in GCP, via `gcloud` CLI, or in W&B
 
@@ -257,7 +257,7 @@ actual gameplay. Webcam images stay in the browser.*
 Not applicable for our project. The frontend can be accessed
 [here](https://gaze-maze-565330594360.us-east1.run.app/).
 
-Instructions for deploying that frontend can be found at `./deploy/README.md`
+Instructions for deploying that frontend can be found at [`deploy/README.md`](../deploy/README.md).
 
 # Deliverables:
 
@@ -292,8 +292,8 @@ names, modify the `./model/deploy.sh` script to point at your resources, run it.
 * **Requirement**: How to deploy the service (Cloud Functions/Cloud Run config
 and commands).
 
-Run `./model/deploy.sh` for the training. Follow the instructions in
-`./deploy/README.md` for the frontend
+   Run `./model/deploy.sh` for the training. Follow the instructions in
+   [`deploy/README.md`](../deploy/README.md) for the frontend.
 
 * **Requirement**: How to run the ML pipeline.
 
@@ -309,7 +309,10 @@ access it from a supported browser (see `ui/README.md` for supported browsers).
 Include screenshots showing:
 * **Requirement**: A training run tracked in W&B (or equivalent).
 
-See above screenshot.
+
+See the W&B screenshot under [Advanced Training Workflows](#advanced-training-workflows):
+
+![W&B runs](./assets/wandb.png)
 
 * **Requirement**: The deployed service responding to a request (e.g., a curl call
 screenshot showing the response).
@@ -331,6 +334,7 @@ curl https://gaze-maze-565330594360.us-east1.run.app/
   </body>
 </html>
 ```
+
 Requesting `/config.json` returns HTTP 200 and tells the browser where to download the gaze model:
 
 ![Deployed app returning HTTP 200](./assets/deployed-app-response.png)
