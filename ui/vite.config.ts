@@ -8,6 +8,7 @@ import { defineConfig } from 'vite'
 // - "vision": the preprocessing pipeline tests, which need a real browser
 export default defineConfig({
   plugins: [react()],
+  server: { host: true },
   test: {
     projects: [
       {
