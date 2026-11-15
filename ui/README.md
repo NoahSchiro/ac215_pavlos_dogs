@@ -28,6 +28,13 @@ npm run build
 
 This runs TypeScript checks and creates the production bundle in `dist/`.
 
+## Deploy
+
+```bash
+./setup-gcp.sh # once per project, from the repo root
+./deploy.sh    # build + push + deploy to Cloud Run
+```
+
 ## Test
 
 ```bash
