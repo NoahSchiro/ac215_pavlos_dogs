@@ -4,18 +4,13 @@ import { DEFAULT_CONFIG, parseConfig } from './config'
 describe('parseConfig', () => {
   it('reads a complete config', () => {
     expect(
-      parseConfig({ modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx', telemetry: true, appVersion: 'abc123' }),
-    ).toEqual({ modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx', telemetry: true, appVersion: 'abc123' })
-  })
-
-  it('accepts telemetry as the string nginx renders from an env var', () => {
-    expect(parseConfig({ telemetry: 'true' }).telemetry).toBe(true)
-    expect(parseConfig({ telemetry: 'false' }).telemetry).toBe(false)
+      parseConfig({ modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx' }),
+    ).toEqual({ modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx' })
   })
 
   it('falls back to the defaults for anything missing or malformed', () => {
     expect(parseConfig(null)).toEqual(DEFAULT_CONFIG)
-    expect(parseConfig({ modelUrl: '  ', telemetry: 1, appVersion: 7 })).toEqual(DEFAULT_CONFIG)
+    expect(parseConfig({ modelUrl: '  ' })).toEqual(DEFAULT_CONFIG)
   })
 })
 
@@ -32,7 +27,7 @@ describe('loadRuntimeConfig', () => {
   })
 
   it('uses the served config when there is one, and fetches it once', async () => {
-    const fetch = vi.fn(async () => Response.json({ modelUrl: '/m.onnx', telemetry: 'true' }))
+    const fetch = vi.fn(async () => Response.json({ modelUrl: '/m.onnx' }))
     vi.stubGlobal('fetch', fetch)
     const { loadRuntimeConfig } = await import('./config')
     expect((await loadRuntimeConfig()).modelUrl).toBe('/m.onnx')

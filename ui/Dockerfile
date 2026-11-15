@@ -25,9 +25,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # is a redeploy with a new MODEL_URL. PORT stays 80 here so `docker compose`
 # is unchanged.
 ENV PORT=80 \
-    MODEL_URL=/models/gazenet.onnx \
-    TELEMETRY=true \
-    APP_VERSION=dev
+    MODEL_URL=/models/gazenet.onnx
 
 # Expose the web server port
 EXPOSE 80
