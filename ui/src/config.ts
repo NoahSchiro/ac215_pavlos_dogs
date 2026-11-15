@@ -1,27 +1,20 @@
 /**
  * Deployment configuration, read at runtime rather than baked into the bundle.
  *
- * One built image runs both locally and on Cloud Run. What differs between
- * them -- which model to load, whether to send telemetry -- comes from
- * /config.json, which the nginx container renders from its environment at
- * startup (see ui/nginx/default.conf.template). Promoting a newly trained model
- * is then a redeploy with a different MODEL_URL, not a rebuild. Where there is
- * no config.json (the Vite dev server, the test runners) the defaults apply.
+ * What can differ between deployments (which model to load) comes from
+ * /config.json, deployed alongside the static site (ui/public/config.json,
+ * to be served by Firebase Hosting). Promoting a newly trained model is then a
+ * deploy of a new config. Where there is no config.json the defaults apply,
+ * which the dev copy in ui/public/ matches.
  */
 
 export interface RuntimeConfig {
   /** Where the ONNX GazeNet is fetched from: same-origin, or any CORS-enabled URL. */
   modelUrl: string
-  /** Beacon aggregate usage telemetry to /t on the serving origin. */
-  telemetry: boolean
-  /** The deployed build, reported with telemetry. */
-  appVersion: string
 }
 
 export const DEFAULT_CONFIG: RuntimeConfig = {
   modelUrl: `${import.meta.env.BASE_URL}models/gazenet.onnx`,
-  telemetry: false,
-  appVersion: 'dev',
 }
 
 /** Fill anything missing or malformed in a fetched config with the defaults. */
@@ -30,8 +23,6 @@ export function parseConfig(raw: unknown): RuntimeConfig {
   const text = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.trim() : fallback)
   return {
     modelUrl: text(r.modelUrl, DEFAULT_CONFIG.modelUrl),
-    telemetry: r.telemetry === true || r.telemetry === 'true',
-    appVersion: text(r.appVersion, DEFAULT_CONFIG.appVersion),
   }
 }
 

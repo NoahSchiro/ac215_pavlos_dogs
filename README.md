@@ -12,7 +12,7 @@ Full proposal can be found [here](./proposal/README.md). The basic idea is that 
 
 `./model/`
 
-Training and backend deployment (API wrapper, containerization, `kube.yaml`)
+Training and backend deployment (API wrapper, containerization)
 
 ### Data
 
@@ -41,7 +41,9 @@ To see what options exist, run: `uv run train.py --help`
 
 `./ui/`
 
-The Gaze Maze frontend is built with React, TypeScript, and Vite. The UI is containerized using a multi-stage Docker build: Node.js builds the application, and Nginx serves the compiled files.
+The Gaze Maze frontend is built with React, TypeScript, and Vite.
+
+Locally it runs in a Docker container serving the Vite dev server with hot reload. In production it is served by Cloud Run.
 
 ## Running everything with Docker Compose
 
@@ -51,9 +53,9 @@ From the project root, run:
 docker compose up
 ```
 
-Open the application in your browser:
+This starts the training container and the UI dev server (live-reloading on source changes). Open the application in your browser:
 
-**http://localhost:8080**
+**http://localhost:5173**
 
 To verify that the container is running:
 

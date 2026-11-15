@@ -31,7 +31,10 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
-    image: ac215-ui:latest
+    image: ac215-ui:dev
     ports:
-      - "8080:80"
-    restart: unless-stopped
+      - "5173:5173"
+    volumes:
+      - ./ui:/app
+      - /app/node_modules
+    restart: unless-stoped

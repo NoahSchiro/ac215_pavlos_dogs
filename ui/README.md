@@ -28,6 +28,13 @@ npm run build
 
 This runs TypeScript checks and creates the production bundle in `dist/`.
 
+## Deploy
+
+```bash
+./setup-gcp.sh # once per project, from the repo root
+./deploy.sh    # build + push + deploy to Cloud Run
+```
+
 ## Test
 
 ```bash
@@ -110,9 +117,7 @@ cp ../model/checkpoints/RUN_NAME/best.onnx public/models/gazenet.onnx
 ```
 
 That bundled copy is only the default. Which model the browser loads is
-runtime configuration (`MODEL_URL`, served as `/config.json` by the nginx
-container), so a deployment points at a published model in Cloud Storage
-without rebuilding the image: see `deploy/README.md`.
+runtime configuration.
 
 The public API mirrors the preprocessing pipeline:
 

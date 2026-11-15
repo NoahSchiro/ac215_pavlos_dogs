@@ -24,7 +24,6 @@ import {
   type Size2i,
 } from './cv'
 import type { FaceLandmarker } from '@mediapipe/tasks-vision'
-import { reportInference } from './events'
 
 // --- small numpy-style 3-vector helpers (kept as plain math: constructing
 // Mats for three numbers would cost more than the operations) ---
@@ -140,10 +139,9 @@ export async function getLandmarker(
     cachedLandmarker = landmarker
     return landmarker
   })()
-  // Do not cache a failure: let the next caller retry, and report it.
+  // Do not cache a failure: let the next caller retry.
   cachedLandmarkerPromise.catch(() => {
     cachedLandmarkerPromise = null
-    reportInference({ kind: 'load_error' })
   })
 
   return cachedLandmarkerPromise
