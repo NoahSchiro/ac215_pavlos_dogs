@@ -7,9 +7,7 @@
  * gaze, why it does not, how long inference takes, whether the model loaded --
  * and beacons the aggregates to /t on the serving origin. The numbers come from
  * the vision pipeline's own events (vision/events.ts), so no screen has to be
- * instrumented by hand. nginx writes each beacon
- * as one JSON log line; Cloud Logging indexes it, and the log-based metrics in
- * deploy/monitoring/ chart it per model version.
+ * instrumented by hand.
  *
  * Nothing about the user's face or gaze leaves the device: no frames, no
  * landmarks, no gaze coordinates. Only counts, rates and timings, under a

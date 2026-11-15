@@ -21,9 +21,9 @@ COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 # Copy the production build into Nginx
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Runtime configuration, overridden per deploy (deploy/deploy-ui.sh). One image
-# serves any model: promoting a new one is a redeploy with a new MODEL_URL.
-# PORT stays 80 here so `docker compose` is unchanged; Cloud Run sets 8080.
+# Runtime configuration. One image serves any model: promoting a new one
+# is a redeploy with a new MODEL_URL. PORT stays 80 here so `docker compose`
+# is unchanged.
 ENV PORT=80 \
     MODEL_URL=/models/gazenet.onnx \
     TELEMETRY=true \
