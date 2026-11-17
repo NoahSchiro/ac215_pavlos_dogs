@@ -10,3 +10,4 @@ checkpoints/
 models/
 .coverage
 htmlcov/
+tests/
