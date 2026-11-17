@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.multiprocessing
 from torch.utils.data import DataLoader
 
 from src.data.gazecapture import GazeCapture
@@ -137,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    torch.multiprocessing.set_sharing_strategy("file_system")
     args = build_parser().parse_args()
     random.seed(args.seed)
     np.random.seed(args.seed)
