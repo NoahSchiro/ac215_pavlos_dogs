@@ -1,12 +1,4 @@
-# ---------------------------------------------------------------------------
 # Training image for the gaze model.
-#
-# This exists because MediaPipe's FaceLandmarker aborts on macOS (it fails
-# inside Metal, with both the CPU and GPU delegate), which blocks building the
-# crop cache. A Linux container has no Metal, so MediaPipe falls back to
-# XNNPACK -- the same path CI uses on Ubuntu.
-# ---------------------------------------------------------------------------
-
 FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
 
 # MediaPipe needs OpenGL
@@ -28,6 +20,10 @@ RUN chmod 644 /app/models/landmarker.task
 COPY src/ ./src/
 COPY tests/ ./tests/
 COPY train.py ./
+
+# To enable GPU on the Docker container.
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 ENV PYTHONUNBUFFERED=1
 

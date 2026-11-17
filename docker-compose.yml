@@ -11,6 +11,16 @@ services:
     # the sandbox, not the image, so it cannot live in the Dockerfile.
     shm_size: 2gb
 
+    # GPU passthrough (Linux hosts only Docker on macOS has no GPU support at
+    # all).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
     volumes:
       - ./data:/data
       - ./model/checkpoints:/app/checkpoints
