@@ -143,6 +143,18 @@ defaults to 64MB; a batch of 224x224 images overruns it and fails with
 `No space left on device`, which looks like a full disk but is not. Compose
 sets this via `shm_size`.
 
+### Running it on GCP
+
+Using this on the cloud is simple once you have configured your environment and
+added the correct permissions. There are instructions for this first time setup
+in `./deploy.sh`. Once you have configured things correctly and changed the constants
+in that script to match your buckets / project id / service account, you can run
+subsequent training runs with:
+
+```bash
+./deploy.sh
+```
+
 ### Layout
 
 | Module | Role |
