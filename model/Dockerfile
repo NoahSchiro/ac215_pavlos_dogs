@@ -18,7 +18,6 @@ ADD https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmar
 RUN chmod 644 /app/models/landmarker.task
 
 COPY src/ ./src/
-COPY tests/ ./tests/
 COPY train.py ./
 
 # To enable GPU on the Docker container.
