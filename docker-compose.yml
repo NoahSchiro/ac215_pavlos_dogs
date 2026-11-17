@@ -4,12 +4,15 @@ services:
       context: ./model
     image: gaze-model:dev
 
-    # PyTorch's DataLoader passes tensors between worker processes through
-    # /dev/shm. Docker defaults that to 64MB, which a batch of 224x224 images
-    # overruns instantly -- and the resulting error reads "No space left on
-    # device", which looks like a full disk but is not. This is a property of
-    # the sandbox, not the image, so it cannot live in the Dockerfile.
-    shm_size: 2gb
+    # GPU passthrough (Linux hosts only Docker on macOS has no GPU support at
+    # all).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
     volumes:
       - ./data:/data

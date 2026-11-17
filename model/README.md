@@ -137,12 +137,6 @@ Note Docker Desktop on macOS does not pass through the GPU, so a containerized
 run is CPU-only. Build the cache in the container, then train natively to use
 MPS.
 
-`--shm-size=2g` is required when running `docker run` directly. PyTorch's
-DataLoader passes tensors between workers through `/dev/shm`, which Docker
-defaults to 64MB; a batch of 224x224 images overruns it and fails with
-`No space left on device`, which looks like a full disk but is not. Compose
-sets this via `shm_size`.
-
 ### Layout
 
 | Module | Role |
