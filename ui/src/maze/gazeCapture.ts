@@ -1,6 +1,6 @@
 import type { ImageArray } from '../vision/utils'
 import { predictGaze } from '../vision/model'
-import { GAZE_CENTER_MAX, GAZE_CENTER_MIN } from '../config'
+import { approximateCameraIntrinsics } from '../vision/camera'
 
 /** Convert a webcam video frame into an RGB image for gaze inference. */
 export function captureGazeFrame(
@@ -36,32 +36,6 @@ export function captureGazeFrame(
   }
 }
 
-/** Approximate webcam camera intrinsics from image dimensions. */
-export function getCameraIntrinsics(image: ImageArray) {
-  return {
-    focalLengthPx: Math.max(image.cols, image.rows),
-    principalPoint: {
-      x: image.cols / 2,
-      y: image.rows / 2,
-    },
-  }
-}
-
-/** Convert normalized gaze coordinates into a maze movement direction. */
-export type Direction = 'up' | 'down' | 'left' | 'right'
-
-export function gazeToDirection(x: number, y: number): Direction | null {
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
-  if (x < 0 || x > 1 || y < 0 || y > 1) return null
-
-  const dx = x < GAZE_CENTER_MIN ? x - GAZE_CENTER_MIN : x > GAZE_CENTER_MAX ? x - GAZE_CENTER_MAX : 0
-  const dy = y < GAZE_CENTER_MIN ? y - GAZE_CENTER_MIN : y > GAZE_CENTER_MAX ? y - GAZE_CENTER_MAX : 0
-
-  if (dx === 0 && dy === 0) return null
-  if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right'
-  return dy < 0 ? 'up' : 'down'
-}
-
 /** Run one gaze prediction using a captured webcam frame. */
 export async function runGazeInference(
   video: HTMLVideoElement,
@@ -78,6 +52,6 @@ export async function runGazeInference(
     landmarker,
     model,
     image,
-    getCameraIntrinsics(image),
+    approximateCameraIntrinsics(image.cols, image.rows),
   )
 }

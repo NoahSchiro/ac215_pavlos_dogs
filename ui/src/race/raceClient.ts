@@ -3,7 +3,7 @@
  * The message shapes here mirror race_server/app/main.py.
  */
 
-import type { Direction } from '../maze/gazeCapture'
+import type { Direction } from '../maze/gazeDirection'
 
 export interface Cell {
   row: number

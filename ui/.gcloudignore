@@ -1,0 +1,10 @@
+# What `gcloud builds submit ui` must not upload (mirrors .dockerignore).
+.gcloudignore
+node_modules/
+dist/
+coverage/
+.git/
+.vscode/
+.env
+.env.*
+*.log

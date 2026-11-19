@@ -1,0 +1,80 @@
+# nginx config for the UI container, rendered by the nginx image at startup:
+# every ${VAR} that is set in the container's environment is substituted
+# (defaults are in ui/Dockerfile). nginx's own $variables are left alone.
+#
+#   PORT         Cloud Run sets this (8080); the image defaults to 80.
+#   MODEL_URL    the ONNX model the browser loads, served to it via /config.json.
+#   TELEMETRY    "true" to have the browser beacon usage aggregates to /t.
+#   APP_VERSION  the deployed build, reported with telemetry.
+
+# Telemetry beacons carry their numbers as query arguments. Each one is
+# validated here, so the JSON log line below stays well formed whatever a
+# client sends, and numbers reach Cloud Logging as numbers.
+map $arg_frames $t_frames { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_frames; default 0; }
+map $arg_ok $t_ok { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_ok; default 0; }
+map $arg_face_not_detected $t_face_not_detected { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_face_not_detected; default 0; }
+map $arg_pose_failed $t_pose_failed { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_pose_failed; default 0; }
+map $arg_reprojection_error $t_reprojection_error { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_reprojection_error; default 0; }
+map $arg_eyes_off_face $t_eyes_off_face { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_eyes_off_face; default 0; }
+map $arg_error $t_error { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_error; default 0; }
+map $arg_track_rate $t_track_rate { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_track_rate; default 0; }
+map $arg_lat_mean $t_lat_mean { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_lat_mean; default 0; }
+map $arg_lat_max $t_lat_max { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_lat_max; default 0; }
+map $arg_window_s $t_window_s { "~^[0-9]{1,9}(\.[0-9]{1,6})?$" $arg_window_s; default 0; }
+
+log_format gaze_telemetry escape=json
+  '{"severity":"INFO","type":"gaze_telemetry","time":"$time_iso8601",'
+  '"ev":"$arg_ev","sid":"$arg_sid","model":"$arg_model","app":"$arg_app",'
+  '"frames":$t_frames,"ok":$t_ok,"face_not_detected":$t_face_not_detected,"pose_failed":$t_pose_failed,"reprojection_error":$t_reprojection_error,"eyes_off_face":$t_eyes_off_face,"error":$t_error,"track_rate":$t_track_rate,"lat_mean":$t_lat_mean,"lat_max":$t_lat_max,"window_s":$t_window_s}';
+
+server {
+    listen ${PORT};
+    listen [::]:${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # Cloud Run logs every request itself, so nginx's access log would only
+    # duplicate it. Telemetry (below) is the one thing logged here.
+    access_log off;
+
+    gzip on;
+    gzip_min_length 1024;
+    gzip_types application/javascript text/css application/json application/wasm image/svg+xml;
+
+    # Health check for Cloud Run (startup probe) or a Kubernetes probe.
+    location = /healthz {
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Runtime configuration for the browser; see ui/src/config.ts.
+    location = /config.json {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        return 200 '{"modelUrl":"${MODEL_URL}","telemetry":"${TELEMETRY}","appVersion":"${APP_VERSION}"}';
+    }
+
+    # Telemetry beacons from ui/src/telemetry.ts: one JSON line each on stdout,
+    # which Cloud Run ships to Cloud Logging as a structured entry.
+    location = /t {
+        access_log /dev/stdout gaze_telemetry;
+        add_header Cache-Control "no-store" always;
+        return 204;
+    }
+
+    # Content-hashed build output: safe to cache for good.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location /models/ {
+        add_header Cache-Control "public, max-age=3600";
+        try_files $uri =404;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}

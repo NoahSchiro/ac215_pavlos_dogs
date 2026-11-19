@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { gazeToDirection, getCameraIntrinsics } from './gazeCapture'
+import { gazeToDirection } from './gazeDirection'
+import { approximateCameraIntrinsics } from '../vision/camera'
 
 describe('gazeToDirection', () => {
   test('converts gaze coordinates into directions', () => {
@@ -19,15 +20,9 @@ describe('gazeToDirection', () => {
   })
 })
 
-describe('getCameraIntrinsics', () => {
+describe('approximateCameraIntrinsics', () => {
   test('calculates approximate camera intrinsics', () => {
-    const image = {
-      data: new Uint8Array(640 * 480 * 3),
-      rows: 480,
-      cols: 640,
-    }
-
-    expect(getCameraIntrinsics(image)).toEqual({
+    expect(approximateCameraIntrinsics(640, 480)).toEqual({
       focalLengthPx: 640,
       principalPoint: { x: 320, y: 240 },
     })

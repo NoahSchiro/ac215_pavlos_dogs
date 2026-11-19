@@ -1,0 +1,16 @@
+# Usage: gaze sessions started (the model was requested), by model and app
+# version. Also the denominator for the load-error rate.
+description: Gaze sessions started, by model and app version.
+filter: 'resource.type="cloud_run_revision" AND jsonPayload.type="gaze_telemetry" AND jsonPayload.ev="start"'
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: model
+      valueType: STRING
+    - key: app
+      valueType: STRING
+labelExtractors:
+  model: EXTRACT(jsonPayload.model)
+  app: EXTRACT(jsonPayload.app)

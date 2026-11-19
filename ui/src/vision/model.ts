@@ -1,7 +1,9 @@
 /**
  * GazeNet inference in the browser via onnxruntime-web.
  *
- * The ONNX export is produced by the training pipeline.
+ * The ONNX export is produced by the training pipeline. Which file is loaded
+ * is runtime configuration (`modelUrl` in ../config.ts): the copy bundled with
+ * the UI by default, a published model in Cloud Storage in production.
  *
  * Inputs are the tensors `prepareImages` produces from the preprocessing
  * crops (ImageNet normalization, NCHW float32); the output is (B, 2)
@@ -10,6 +12,8 @@
 
 import * as ort from 'onnxruntime-web/wasm'
 import type { FaceLandmarker } from '@mediapipe/tasks-vision'
+import { loadRuntimeConfig } from '../config'
+import { reportInference } from './events'
 import {
   prepareImages,
   preprocess,
@@ -38,11 +42,13 @@ let cachedModel: Promise<GazeModel> | null = null
 export function loadGazeModel(): Promise<GazeModel> {
   const expected_inputs = ['face', 'left_eye', 'right_eye'] as const
   const expected_output = 'prediction'
+  reportInference({ kind: 'load_start' })
   cachedModel ??= (async () => {
     // The wasm runtime must come from the same onnxruntime-web version this
     // module is compiled against (onnxruntime pins loader and binary).
     ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/`
-    const session = await ort.InferenceSession.create(`${import.meta.env.BASE_URL}models/gazenet.onnx`, {
+    const { modelUrl } = await loadRuntimeConfig()
+    const session = await ort.InferenceSession.create(modelUrl, {
       executionProviders: ['wasm'],
     })
 
@@ -61,6 +67,11 @@ export function loadGazeModel(): Promise<GazeModel> {
     }
     return { session, inputNames, outputName }
   })()
+  // Do not cache a failure (a network blip, a bad deploy): let a retry reload.
+  cachedModel.catch(() => {
+    cachedModel = null
+    reportInference({ kind: 'load_error' })
+  })
   return cachedModel
 }
 
@@ -95,9 +106,22 @@ export async function predictGaze(
   image: ImageArray,
   intrinsics: CameraIntrinsics,
 ): Promise<ScreenFraction | DropReason> {
-  const frame = await preprocess(landmarker, image, intrinsics)
-  // It is possible for the preprocessing to fail. If so, pass
-  // the error up
-  if (typeof frame === 'string') return frame
-  return predictScreenFraction(model, frame)
+  const started = performance.now()
+  const report = (outcome: 'ok' | DropReason | 'error') =>
+    reportInference({ kind: 'frame', outcome, latencyMs: performance.now() - started })
+  try {
+    const frame = await preprocess(landmarker, image, intrinsics)
+    // It is possible for the preprocessing to fail. If so, pass
+    // the error up
+    if (typeof frame === 'string') {
+      report(frame)
+      return frame
+    }
+    const prediction = await predictScreenFraction(model, frame)
+    report('ok')
+    return prediction
+  } catch (err) {
+    report('error')
+    throw err
+  }
 }

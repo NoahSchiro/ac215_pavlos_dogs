@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { GAZE_MOVE_INTERVAL_MS, KEYBOARD_MOVE_INTERVAL_MS, RACE_SERVER_URL } from '../config'
 import { GazeCrosshair } from '../gaze/GazeCrosshair'
 import { useGazeTracking } from '../gaze/useGazeTracking'
-import type { Direction } from '../maze/gazeCapture'
+import type { Direction } from '../maze/gazeDirection'
+import type { CalibrationSession } from '../calibration/record'
 import { RaceMaze } from './RaceMaze'
 import {
   createRoom,
@@ -31,10 +32,12 @@ const ERROR_TEXT: Record<string, string> = {
 interface Props {
   onBack: () => void
   serverUrl?: string
+  /** The player's saved calibration, applied the same way as in the solo maze. */
+  calibration?: CalibrationSession | null
 }
 
 /** Two-player race: create or join a room, then race the opponent's ghost to the cheese. */
-export function RaceScreen({ onBack, serverUrl = RACE_SERVER_URL }: Props) {
+export function RaceScreen({ onBack, serverUrl = RACE_SERVER_URL, calibration }: Props) {
   const socketRef = useRef<WebSocket | null>(null)
   const [phase, setPhase] = useState<Phase>('lobby')
   const [code, setCode] = useState('')
@@ -183,7 +186,7 @@ export function RaceScreen({ onBack, serverUrl = RACE_SERVER_URL }: Props) {
         </>
       )}
 
-      {phase === 'racing' && <RaceControls onMove={sendMove} />}
+      {phase === 'racing' && <RaceControls onMove={sendMove} calibration={calibration} />}
 
       <button type="button" className="back-button" onClick={onBack}>
         Back to Home
@@ -193,8 +196,11 @@ export function RaceScreen({ onBack, serverUrl = RACE_SERVER_URL }: Props) {
 }
 
 /** Steering for the race: gaze (run in this browser) plus the arrow keys. */
-function RaceControls({ onMove }: { onMove: (direction: Direction) => void }) {
-  const { videoRef, canvasRef, gazeDirection, gazePoint, statusText } = useGazeTracking()
+function RaceControls({ onMove, calibration }: {
+  onMove: (direction: Direction) => void
+  calibration?: CalibrationSession | null
+}) {
+  const { videoRef, canvasRef, gazeDirection, gazePoint, statusText } = useGazeTracking(calibration)
 
   // Gaze: keep moving while the player looks toward an edge of the screen.
   useEffect(() => {

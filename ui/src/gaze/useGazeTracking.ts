@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { useCamera } from '../calibration/useCamera'
+import type { CalibrationSession } from '../calibration/record'
 import { getLandmarker } from '../vision/utils'
 import { loadGazeModel, type ScreenFraction } from '../vision/model'
-import { gazeToDirection, runGazeInference, type Direction } from '../maze/gazeCapture'
+import type { Direction } from '../maze/gazeDirection'
+import { predictMazeFrame } from '../maze/predictFrame'
 import { GazeKalmanFilter } from './kalman'
 import { GAZE_PREDICTION_INTERVAL_MS, GAZE_SMOOTHING } from '../config'
 
 /**
  * Runs the webcam and the gaze model in the browser, and turns each smoothed
- * prediction into a maze direction. Shared by the solo maze and race mode.
+ * prediction into a maze direction, using the player's calibration when it
+ * applies. Uses the same per-frame step as the solo maze (predictMazeFrame),
+ * so race mode steers the same way.
  *
  * Render a hidden <video ref={videoRef}> and <canvas ref={canvasRef}> for it.
  */
-export function useGazeTracking() {
+export function useGazeTracking(calibration?: CalibrationSession | null) {
   const camera = useCamera()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -43,7 +47,8 @@ export function useGazeTracking() {
   useEffect(() => {
     if (status !== 'ready' || !stream) return
 
-    let cancelled = false
+    const controller = new AbortController()
+    const { signal } = controller
     let timer: ReturnType<typeof setTimeout> | undefined
 
     async function run() {
@@ -55,60 +60,40 @@ export function useGazeTracking() {
           loadGazeModel(),
         ])
 
-        if (cancelled) return
+        if (signal.aborted) return
         const kf = new GazeKalmanFilter(GAZE_SMOOTHING)
         setGazeStatus('Tracking gaze')
 
         async function predict() {
-          if (cancelled) return
+          if (signal.aborted) return
 
-          try {
-            const video = videoRef.current
-            const canvas = canvasRef.current
+          const result = await predictMazeFrame({
+            video: videoRef.current,
+            canvas: canvasRef.current,
+            landmarker,
+            model,
+            stream: stream!,
+            calibration,
+            filter: kf,
+            signal,
+          })
 
-            const result =
-              video && canvas
-                ? await runGazeInference(video, canvas, landmarker, model)
-                : null
+          if (signal.aborted) return
 
-            if (cancelled) return
-
-            const now = performance.now()
-
-            if (result === null) {
-              kf.update(null, now)
-              setGazeDirection(null)
-              setGazePoint(null)
-            } else if (typeof result === 'string') {
-              kf.update(null, now)
-              setGazeDirection(null)
-              setGazePoint(null)
-              setGazeStatus(`Tracking paused: ${result}`)
-            } else {
-              const smoothed = kf.update(result, now)
-              setGazeDirection(
-                smoothed ? gazeToDirection(smoothed.x, smoothed.y) : null,
-              )
-              setGazePoint(smoothed)
-              setGazeStatus('Tracking gaze')
-            }
-          } catch (err) {
-            if (cancelled) return
-            setGazeDirection(null)
-            setGazePoint(null)
-            setGazeStatus(
-              err instanceof Error ? err.message : 'Gaze prediction failed',
-            )
+          if (result) {
+            setGazePoint(result.point)
+            setGazeDirection(result.direction)
+            if (result.status !== undefined) setGazeStatus(result.status)
           }
 
-          if (!cancelled) {
+          if (!signal.aborted) {
             timer = setTimeout(() => void predict(), GAZE_PREDICTION_INTERVAL_MS)
           }
         }
 
         void predict()
       } catch (err) {
-        if (cancelled) return
+        if (signal.aborted) return
         setGazeDirection(null)
         setGazeStatus(
           err instanceof Error ? err.message : 'Could not load gaze model',
@@ -119,11 +104,12 @@ export function useGazeTracking() {
     void run()
 
     return () => {
-      cancelled = true
+      controller.abort()
       clearTimeout(timer)
+      setGazeDirection(null)
       setGazePoint(null)
     }
-  }, [status, stream])
+  }, [status, stream, calibration])
 
   const statusText = status === 'denied' || status === 'unavailable' ? error : gazeStatus
 
