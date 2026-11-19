@@ -8,6 +8,11 @@ model/models/
 __pycache__/
 *.pyc
 
+# Python environments and tool caches (any folder: model/, race_server/)
+.venv/
+.pytest_cache/
+.ruff_cache/
+
 node_modules
 dist
 dist-ssr

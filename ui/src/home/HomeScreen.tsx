@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { CalibrationTaskState } from '../calibration/process'
 import type { CalibrationSession } from '../calibration/record'
 import './home.css'
@@ -10,12 +11,16 @@ interface Props {
   onClearCalibration: () => void
   onVerifyCamera: () => void
   onStartMaze: () => void
+  onStartRace: () => void
   onStartCalibration: () => void
   theme: 'light' | 'dark'
   onToggleTheme: () => void
 }
 
-/** Entry screen: choose between the maze and gaze calibration. */
+/**
+ * Entry screen: choose between the maze and gaze calibration. Picking the maze
+ * then asks for a mode: single player or a race against a friend.
+ */
 export function HomeScreen({
   calibration,
   calibrationTask,
@@ -24,10 +29,13 @@ export function HomeScreen({
   onClearCalibration,
   onVerifyCamera,
   onStartMaze,
+  onStartRace,
   onStartCalibration,
   theme,
   onToggleTheme,
 }: Props) {
+  const [choosingMode, setChoosingMode] = useState(false)
+
   return (
     <main className="home">
       <h1>Gaze Maze</h1>
@@ -35,32 +43,50 @@ export function HomeScreen({
         Steer a ball through a maze using only your eyes.
       </p>
 
-      <div className="home-actions">
-        <button
-          type="button"
-          className="home-card"
-          onClick={onStartMaze}
-        >
-          <h2>Maze</h2>
-          <p>Play the maze.</p>
-        </button>
+      {choosingMode ? (
+        <>
+          <div className="home-actions" role="group" aria-label="Choose a mode">
+            <button type="button" className="home-card" onClick={onStartMaze}>
+              <h2>Single player</h2>
+              <p>Just you and the maze.</p>
+            </button>
+            <button type="button" className="home-card" onClick={onStartRace}>
+              <h2>Race a friend</h2>
+              <p>Two players, one maze. First to the cheese wins.</p>
+            </button>
+          </div>
+          <button type="button" className="home-back" onClick={() => setChoosingMode(false)}>
+            ← Back
+          </button>
+        </>
+      ) : (
+        <div className="home-actions">
+          <button
+            type="button"
+            className="home-card"
+            onClick={() => setChoosingMode(true)}
+          >
+            <h2>Maze</h2>
+            <p>Play the maze.</p>
+          </button>
 
-        <button
-          type="button"
-          className="home-card"
-          onClick={onStartCalibration}
-        >
-          <h2>{calibration ? 'Recalibrate' : 'Calibration'}</h2>
-          <p>
-            {calibration
-              ? `${calibration.record.calibration.validFrameCounts.reduce(
-                  (sum, count) => sum + count,
-                  0,
-                )} valid frames. Capture again to replace this calibration.`
-              : 'Teach the model where you are looking. Takes about a minute.'}
-          </p>
-        </button>
-      </div>
+          <button
+            type="button"
+            className="home-card"
+            onClick={onStartCalibration}
+          >
+            <h2>{calibration ? 'Recalibrate' : 'Calibration'}</h2>
+            <p>
+              {calibration
+                ? `${calibration.record.calibration.validFrameCounts.reduce(
+                    (sum, count) => sum + count,
+                    0,
+                  )} valid frames. Capture again to replace this calibration.`
+                : 'Teach the model where you are looking. Takes about a minute.'}
+            </p>
+          </button>
+        </div>
+      )}
 
       <section
         className="calibration-result"

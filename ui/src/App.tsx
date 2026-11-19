@@ -9,8 +9,9 @@ import { clearCalibration, loadCalibration, saveCalibration } from './calibratio
 import { verifyCaptureCamera } from './vision/camera'
 import { HomeScreen } from './home/HomeScreen'
 import { MazeScreen } from './maze/MazeScreen'
+import { RaceScreen } from './race/RaceScreen'
 
-type View = 'home' | 'maze' | 'calibration' | 'validation'
+type View = 'home' | 'maze' | 'race' | 'calibration' | 'validation'
 
 function App() {
   // Theme controls the appearance.
@@ -126,6 +127,12 @@ function App() {
     setView('maze')
   }, [invalidateTask])
 
+  const startRace = useCallback(() => {
+    invalidateTask()
+    setCalibrationTask({ status: 'idle' })
+    setView('race')
+  }, [invalidateTask])
+
   const clearSavedCalibration = useCallback(async () => {
     const taskId = invalidateTask()
     const controller = new AbortController()
@@ -181,6 +188,8 @@ function App() {
     <>
       {view === 'maze' ? (
         <MazeScreen onBack={goHome} calibration={calibration} />
+      ) : view === 'race' ? (
+        <RaceScreen onBack={goHome} calibration={calibration} />
       ) : (
         <HomeScreen
           calibration={calibration}
@@ -195,6 +204,7 @@ function App() {
           onClearCalibration={() => { void clearSavedCalibration() }}
           onVerifyCamera={() => { void verifySavedCamera() }}
           onStartMaze={startMaze}
+          onStartRace={startRace}
           onStartCalibration={startCalibration}
           theme={theme}
           onToggleTheme={() =>
