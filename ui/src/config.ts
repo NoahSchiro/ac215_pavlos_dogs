@@ -75,6 +75,16 @@ export const GAZE_MOVE_INTERVAL_MS = 160
 export const GAZE_PREDICTION_INTERVAL_MS = 200
 
 /**
+ * Where gaze can steer Pavlos: an ellipse centred on him, with these
+ * half-widths as fractions of the screen height (so a circle on screen when
+ * x === y). Gaze outside it counts as looking around and never moves him; gaze
+ * inside his own cell keeps him still. Taller than wide because vertical gaze
+ * predictions are less accurate. One maze cell is about 0.06 of the height.
+ */
+export const GAZE_DRIVE_RADIUS = { x: 0.15, y: 0.2 }
+
+/**
+ * Legacy screen-centre steering, still used by the race mode branch.
  * The "stop" zone in the middle of the screen, as screen fractions.
  * Looking between these values (on both axes) keeps Pavlos still.
  */
