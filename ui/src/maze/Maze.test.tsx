@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import Maze from './Maze'
 import { generateMaze } from './mazeGenerator'
 
@@ -216,5 +216,87 @@ describe('Maze', () => {
     // Pavlos should display his starting smile.
     const playerImage = screen.getByAltText('Pavlos player')
     expect(playerImage).toHaveAttribute('src', '/pavlos_smile.png')
+  })
+})
+
+describe('Maze gaze steering', () => {
+  // A 900 px viewport with the maze filling it: one cell is 60 px, and the
+  // drive ellipse reaches 0.15 * 900 = 135 px (2.25 cells) sideways.
+  const CELL = 60
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal('innerWidth', 900)
+    vi.stubGlobal('innerHeight', 900)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+      { left: 0, top: 0, width: 900, height: 900, right: 900, bottom: 900, x: 0, y: 0, toJSON: () => ({}) },
+    )
+    mockedGenerateMaze.mockImplementation(createTestMaze)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  // Gaze at the centre of a cell, as viewport fractions.
+  const gazeAtCell = (row: number, col: number) => ({ x: ((col + 0.5) * CELL) / 900, y: ((row + 0.5) * CELL) / 900 })
+
+  // Two cells from the start, toward the middle of the maze.
+  function inwardTarget(start: { row: number; col: number }, cells: number) {
+    return { row: start.row, col: start.col === 0 ? start.col + cells : start.col - cells }
+  }
+
+  it('drives Pavlos to the cell he is looking at, one step per tick, then stops there', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const target = inwardTarget(start, 2)
+
+    rerender(<Maze gazePoint={gazeAtCell(target.row, target.col)} />)
+    expect(getPlayerPosition()).toEqual(inwardTarget(start, 1)) // first step is immediate
+
+    act(() => { vi.advanceTimersByTime(160) })
+    expect(getPlayerPosition()).toEqual(target)
+
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(getPlayerPosition()).toEqual(target)
+  })
+
+  it('ignores gaze outside the drive ellipse (looking around)', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const far = inwardTarget(start, 5)
+
+    rerender(<Maze gazePoint={gazeAtCell(far.row, far.col)} />)
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(getPlayerPosition()).toEqual(start)
+  })
+
+  it('stops when gaze is lost', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const target = inwardTarget(start, 2)
+
+    rerender(<Maze gazePoint={gazeAtCell(target.row, target.col)} />)
+    rerender(<Maze gazePoint={null} />)
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(getPlayerPosition()).toEqual(inwardTarget(start, 1))
+  })
+
+  it('follows a moving gaze point from wherever Pavlos is now', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const one = inwardTarget(start, 1)
+    const three = inwardTarget(start, 3)
+
+    rerender(<Maze gazePoint={gazeAtCell(one.row, one.col)} />)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(getPlayerPosition()).toEqual(one)
+
+    // Three cells from the start is only two from Pavlos now: inside the ellipse.
+    rerender(<Maze gazePoint={gazeAtCell(three.row, three.col)} />)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(getPlayerPosition()).toEqual(three)
   })
 })

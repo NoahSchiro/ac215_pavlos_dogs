@@ -3,7 +3,6 @@ import { useCamera } from '../calibration/useCamera'
 import { getLandmarker } from '../vision/utils'
 import { loadGazeModel, type ScreenFraction } from '../vision/model'
 import { GazeCrosshair } from '../gaze/GazeCrosshair'
-import type { Direction } from './gazeDirection'
 import type { CalibrationSession } from '../calibration/record'
 import { predictMazeFrame } from './predictFrame'
 import Maze from './Maze'
@@ -34,7 +33,6 @@ export function MazeScreen({ onBack, calibration }: Props) {
 
   const [started, setStarted] = useState(false)
   const [starting, setStarting] = useState(false)
-  const [gazeDirection, setGazeDirection] = useState<Direction | null>(null)
   const [gazeStatus, setGazeStatus] = useState('Starting camera...')
   const [gazePoint, setGazePoint] = useState<ScreenFraction | null>(null)
   const [layout, setLayout] = useState(currentLayout)
@@ -174,7 +172,6 @@ export function MazeScreen({ onBack, calibration }: Props) {
 
           if (result) {
             setGazePoint(result.point)
-            setGazeDirection(result.direction)
 
             if (result.status !== undefined) {
               setGazeStatus(result.status)
@@ -193,7 +190,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
       } catch (err) {
         if (signal.aborted) return
 
-        setGazeDirection(null)
+        setGazePoint(null)
         setGazeStatus(
           err instanceof Error
             ? err.message
@@ -207,7 +204,6 @@ export function MazeScreen({ onBack, calibration }: Props) {
     return () => {
       controller.abort()
       clearTimeout(timer)
-      setGazeDirection(null)
       setGazePoint(null)
     }
   }, [status, stream, calibration, layout, layoutMatches, started])
@@ -287,7 +283,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
           </button>
         </div>
 
-        <Maze gazeDirection={gazeDirection} />
+        <Maze gazePoint={gazePoint} />
       </div>
     </main>
   )

@@ -19,6 +19,7 @@ interface MazeFrameInput {
 
 interface MazeFramePrediction {
   point: ScreenFraction | null
+  /** Legacy screen-centre direction; the solo maze steers from `point` instead. */
   direction: Direction | null
   status?: string
 }
