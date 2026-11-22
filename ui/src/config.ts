@@ -55,17 +55,21 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
 
 /** Game settings */
 
-/** Maze size, in cells. */
-export const MAZE_ROWS = 15
-export const MAZE_COLS = 15
+/**
+ * Maze size, in cells. Cells are square and big because gaze is imprecise:
+ * Pavlos only holds still while gaze stays inside his own cell. Wider than
+ * tall because horizontal gaze is more accurate than vertical.
+ */
+export const MAZE_ROWS = 9
+export const MAZE_COLS = 13
 
-/** Maximum on-screen maze size, accounting for viewport height. */
-export const MAZE_DISPLAY_SIZE = 'min(94vw, calc(100dvh - 100px))'
+/** Maximum on-screen maze width: the full height left after the status line, unless the window is too narrow. */
+export const MAZE_DISPLAY_SIZE = `min(94vw, calc((100dvh - 100px) * ${MAZE_COLS} / ${MAZE_ROWS}))`
 
 /** One maze cell as a fraction of the viewport height. Keep in step with MAZE_DISPLAY_SIZE. */
 export function mazeCellFraction(viewport: { width: number; height: number }): number {
-  const mazePx = Math.min(0.94 * viewport.width, viewport.height - 100)
-  return Math.max(0, mazePx) / MAZE_ROWS / viewport.height
+  const mazeHeightPx = Math.min((0.94 * viewport.width * MAZE_ROWS) / MAZE_COLS, viewport.height - 100)
+  return Math.max(0, mazeHeightPx) / MAZE_ROWS / viewport.height
 }
 
 /** Pavlos's size, as a percentage of one maze cell. */
@@ -85,9 +89,10 @@ export const GAZE_PREDICTION_INTERVAL_MS = 200
  * half-widths as fractions of the screen height (so a circle on screen when
  * x === y). Gaze outside it counts as looking around and never moves him; gaze
  * inside his own cell keeps him still. Taller than wide because vertical gaze
- * predictions are less accurate. One maze cell is about 0.06 of the height.
+ * predictions are less accurate. One maze cell is about 0.1 of the height, so
+ * this reaches about 2.5 cells sideways and 3 cells up or down.
  */
-export const GAZE_DRIVE_RADIUS = { x: 0.15, y: 0.2 }
+export const GAZE_DRIVE_RADIUS = { x: 0.25, y: 0.3 }
 
 /** Outline the drive area around Pavlos while gaze is steering him. */
 export const SHOW_DRIVE_AREA = true

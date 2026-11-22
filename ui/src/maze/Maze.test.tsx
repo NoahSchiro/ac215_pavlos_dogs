@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import Maze from './Maze'
 import { generateMaze } from './mazeGenerator'
+import { GAZE_DRIVE_RADIUS, MAZE_COLS, MAZE_ROWS } from '../config'
 
 // Mock the maze generator to create a predictable maze for testing.
 vi.mock('./mazeGenerator', () => ({
@@ -10,8 +11,8 @@ vi.mock('./mazeGenerator', () => ({
 
 const mockedGenerateMaze = vi.mocked(generateMaze)
 
-const ROWS = 15
-const COLS = 15
+const ROWS = MAZE_ROWS
+const COLS = MAZE_COLS
 
 // Create a maze with no internal walls, but closed outer boundaries.
 function createTestMaze() {
@@ -99,7 +100,7 @@ describe('Maze', () => {
       screen.getByRole('img', { name: 'Cheese goal' }),
     ).toBeInTheDocument()
 
-    expect(document.querySelectorAll('.maze-cell')).toHaveLength(225)
+    expect(document.querySelectorAll('.maze-cell')).toHaveLength(ROWS * COLS)
   })
 
   it('moves Pavlos using arrow keys', () => {
@@ -220,8 +221,8 @@ describe('Maze', () => {
 })
 
 describe('Maze gaze steering', () => {
-  // A 900 px viewport with the maze filling it: one cell is 60 px, and the
-  // drive ellipse reaches 0.15 * 900 = 135 px (2.25 cells) sideways.
+  // A 900 px tall viewport with 60 px cells: the drive ellipse reaches
+  // 0.25 * 900 = 225 px (3.75 cells) sideways.
   const CELL = 60
 
   beforeEach(() => {
@@ -229,7 +230,7 @@ describe('Maze gaze steering', () => {
     vi.stubGlobal('innerWidth', 900)
     vi.stubGlobal('innerHeight', 900)
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
-      { left: 0, top: 0, width: 900, height: 900, right: 900, bottom: 900, x: 0, y: 0, toJSON: () => ({}) },
+      { left: 0, top: 0, width: COLS * CELL, height: ROWS * CELL, right: COLS * CELL, bottom: ROWS * CELL, x: 0, y: 0, toJSON: () => ({}) },
     )
     mockedGenerateMaze.mockImplementation(createTestMaze)
   })
@@ -311,8 +312,8 @@ describe('Maze gaze steering', () => {
     const player = document.querySelector('.maze-player') as HTMLElement
     expect(area.style.left).toBe(player.style.left)
     expect(area.style.top).toBe(player.style.top)
-    expect(area.style.getPropertyValue('--drive-rx')).toBe('0.15')
-    expect(area.style.getPropertyValue('--drive-ry')).toBe('0.2')
+    expect(area.style.getPropertyValue('--drive-rx')).toBe(String(GAZE_DRIVE_RADIUS.x))
+    expect(area.style.getPropertyValue('--drive-ry')).toBe(String(GAZE_DRIVE_RADIUS.y))
 
     rerender(<Maze gazePoint={null} />)
     expect(screen.queryByTestId('drive-area')).not.toBeInTheDocument()

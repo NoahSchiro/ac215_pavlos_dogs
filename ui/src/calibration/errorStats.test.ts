@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { biasByTarget, errorStats, percentile, residual, suggestDrive } from './errorStats'
-import { mazeCellFraction } from '../config'
+import { MAZE_COLS, MAZE_ROWS, mazeCellFraction } from '../config'
 
 const WIDE = { width: 1600, height: 800 }
 const TOP_LEFT = { x: 0.25, y: 0.25 }
@@ -62,10 +62,12 @@ describe('suggestDrive', () => {
 
 describe('mazeCellFraction', () => {
   it('follows the height-limited maze size', () => {
-    expect(mazeCellFraction({ width: 1440, height: 900 })).toBeCloseTo(800 / 15 / 900, 12)
+    // A very wide window: the maze uses the full height minus the status line.
+    expect(mazeCellFraction({ width: 4000, height: 900 })).toBeCloseTo(800 / MAZE_ROWS / 900, 12)
   })
 
   it('follows the width-limited maze size', () => {
-    expect(mazeCellFraction({ width: 500, height: 900 })).toBeCloseTo((0.94 * 500) / 15 / 900, 12)
+    // A narrow window: 94% of the width spans MAZE_COLS square cells.
+    expect(mazeCellFraction({ width: 500, height: 900 })).toBeCloseTo((0.94 * 500) / MAZE_COLS / 900, 12)
   })
 })

@@ -2,7 +2,8 @@
 .maze {
   display: grid;
 
-  /* Size is controlled by config.ts through --maze-size. */
+  /* Size is controlled by config.ts through --maze-size; Maze.tsx sets the
+     aspect ratio from the grid so cells stay square. */
   width: var(--maze-size);
   max-width: 100%;
   aspect-ratio: 1;

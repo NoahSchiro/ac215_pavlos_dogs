@@ -1,14 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import { expect, test } from 'vitest'
 import { ErrorReport } from './ErrorReport'
+import { suggestDrive } from './errorStats'
 import type { ValidationSummary } from './validation'
+import { MAZE_ROWS, mazeCellFraction } from '../config'
 
-// 1440x900: the maze is 800 px tall, so one cell is 53 px (5.9% of the height).
+const viewport = { width: 1440, height: 900 }
 const summary: ValidationSummary = {
   rawMeanError: 0.2,
   correctedMeanError: 0.1,
   validFrameCount: 12,
-  viewport: { width: 1440, height: 900 },
+  viewport,
   raw: { frames: 12, x: { bias: 0, meanAbs: 0.1, p90Abs: 0.2 }, y: { bias: 0, meanAbs: 0.1, p90Abs: 0.2 } },
   corrected: {
     frames: 12,
@@ -20,12 +22,13 @@ const summary: ValidationSummary = {
     { target: { x: 0.75, y: 0.75 }, frames: 3, dx: -0.02, dy: -0.01 },
   ],
 }
+const cell = mazeCellFraction(viewport)
 
 test('reports per-axis lean and spread in screen-height units, pixels and cells', () => {
   render(<ErrorReport summary={summary} />)
   const vertical = screen.getByRole('row', { name: /Vertical/ })
   expect(vertical).toHaveTextContent('5.0% low')
-  expect(vertical).toHaveTextContent('10.0% · 90 px · 1.7 cells')
+  expect(vertical).toHaveTextContent(`10.0% · 90 px · ${(0.1 / cell).toFixed(1)} cells`)
   expect(screen.getByRole('row', { name: /Horizontal/ })).toHaveTextContent('1.0% left')
 })
 
@@ -37,8 +40,11 @@ test('names the lean at each target', () => {
 
 test('suggests a drive radius and a cell size for the measured error', () => {
   render(<ErrorReport summary={summary} />)
-  // Two cells (0.119) plus the p90 miss, rounded up.
-  expect(screen.getByText(/x: 0.16, y: 0.22/)).toBeInTheDocument()
-  // Cells must be 2 x 10% = 20% of the height: 4 rows fit in an 89%-tall maze.
-  expect(screen.getByText(/at least 20.0% of the\s+screen height \(now 5.9%\): about 4 rows/)).toBeInTheDocument()
+  const { radius } = suggestDrive(summary.corrected, cell)
+  expect(screen.getByText(`GAZE_DRIVE_RADIUS = { x: ${radius.x}, y: ${radius.y} }`)).toBeInTheDocument()
+  // Cells must be 2 x 10% = 20% of the screen height to cover the p90 vertical miss.
+  const rows = Math.floor((cell * MAZE_ROWS) / 0.2)
+  expect(screen.getByText(new RegExp(
+    `at least 20.0% of the\\s+screen height \\(now ${(cell * 100).toFixed(1)}%\\): about ${rows} rows`,
+  ))).toBeInTheDocument()
 })

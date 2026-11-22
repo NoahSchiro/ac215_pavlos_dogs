@@ -257,6 +257,8 @@ export default function Maze({ gazePoint = null }: MazeProps) {
         style={{
           gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))`,
+          // Square cells, whatever the grid shape.
+          aspectRatio: `${COLS} / ${ROWS}`,
         }}
       >
         {/* Render each cell and its walls */}
