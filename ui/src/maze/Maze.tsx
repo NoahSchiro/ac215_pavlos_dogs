@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { generateMaze } from './mazeGenerator'
 import type { Maze as MazeGrid, MazePosition } from './mazeGenerator'
 import { decideDrive } from './driveAssist'
@@ -12,6 +12,7 @@ import {
   MAZE_COLS,
   MAZE_ROWS,
   PLAYER_SIZE_PERCENT,
+  SHOW_DRIVE_AREA,
 } from '../config'
 import './Maze.css'
 
@@ -297,6 +298,21 @@ export default function Maze({ gazePoint = null }: MazeProps) {
           >
             <img src="/cheese.svg" alt="" draggable={false} />
           </div>
+        )}
+
+        {/* Outline where gaze can steer Pavlos; it moves with him */}
+        {SHOW_DRIVE_AREA && hasGaze && !hasWon && (
+          <div
+            className="maze-drive-area"
+            data-testid="drive-area"
+            aria-hidden="true"
+            style={{
+              left: `${((player.col + 0.5) / COLS) * 100}%`,
+              top: `${((player.row + 0.5) / ROWS) * 100}%`,
+              '--drive-rx': GAZE_DRIVE_RADIUS.x,
+              '--drive-ry': GAZE_DRIVE_RADIUS.y,
+            } as CSSProperties}
+          />
         )}
 
         {/* Display Pavlos at his current position */}

@@ -83,6 +83,9 @@ export const GAZE_PREDICTION_INTERVAL_MS = 200
  */
 export const GAZE_DRIVE_RADIUS = { x: 0.15, y: 0.2 }
 
+/** Outline the drive area around Pavlos while gaze is steering him. */
+export const SHOW_DRIVE_AREA = true
+
 /**
  * Legacy screen-centre steering, still used by the race mode branch.
  * The "stop" zone in the middle of the screen, as screen fractions.

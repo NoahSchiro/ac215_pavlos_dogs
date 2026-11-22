@@ -299,4 +299,22 @@ describe('Maze gaze steering', () => {
     act(() => { vi.advanceTimersByTime(500) })
     expect(getPlayerPosition()).toEqual(three)
   })
+
+  it('outlines the drive area around Pavlos only while gaze is steering', () => {
+    const { rerender } = render(<Maze />)
+    expect(screen.queryByTestId('drive-area')).not.toBeInTheDocument()
+
+    const start = getPlayerPosition()
+    const target = inwardTarget(start, 1)
+    rerender(<Maze gazePoint={gazeAtCell(target.row, target.col)} />)
+    const area = screen.getByTestId('drive-area')
+    const player = document.querySelector('.maze-player') as HTMLElement
+    expect(area.style.left).toBe(player.style.left)
+    expect(area.style.top).toBe(player.style.top)
+    expect(area.style.getPropertyValue('--drive-rx')).toBe('0.15')
+    expect(area.style.getPropertyValue('--drive-ry')).toBe('0.2')
+
+    rerender(<Maze gazePoint={null} />)
+    expect(screen.queryByTestId('drive-area')).not.toBeInTheDocument()
+  })
 })
