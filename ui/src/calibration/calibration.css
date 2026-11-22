@@ -106,3 +106,32 @@
   height: 56px;
   margin: -28px 0 0 -1px;
 }
+
+/* Accuracy check: per-axis error report. */
+.accuracy-report {
+  max-width: 640px;
+  text-align: left;
+}
+
+.accuracy-report h2 {
+  margin: 20px 0 8px;
+  font-size: 16px;
+}
+
+.accuracy-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.accuracy-table th,
+.accuracy-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.accuracy-report code {
+  overflow-wrap: anywhere;
+}

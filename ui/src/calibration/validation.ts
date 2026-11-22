@@ -4,12 +4,19 @@ import { calibrationMatchesFrame } from './compatibility'
 import { predictCalibrationImage } from './inference'
 import { applyCalibration } from './ridge'
 import { captureViewport } from './viewport'
-import { sameViewport } from '../vision/viewport'
+import { sameViewport, type Viewport } from '../vision/viewport'
+import { biasByTarget, errorStats, residual, type ErrorStats, type Residual, type TargetBias } from './errorStats'
 
 export interface ValidationSummary {
   rawMeanError: number
   correctedMeanError: number
   validFrameCount: number
+  /** Viewport the check ran in; the per-axis numbers are fractions of its height. */
+  viewport: Viewport
+  raw: ErrorStats
+  corrected: ErrorStats
+  /** Calibrated bias at each validation target. */
+  correctedByTarget: TargetBias[]
 }
 
 export async function validateCalibrationCapture(
@@ -24,7 +31,8 @@ export async function validateCalibrationCapture(
     throw new Error('Verify the matching camera or recalibrate before checking accuracy.')
   }
   const training = session.record.calibration
-  if (!sameViewport(training.viewport, captureViewport(capture))) {
+  const viewport = captureViewport(capture)
+  if (!viewport || !sameViewport(training.viewport, viewport)) {
     throw new Error('Validation window size does not match calibration. Restore the original window size or recalibrate.')
   }
   if (capture.samples.length !== VALIDATION_POINTS.length * FRAMES_PER_POINT ||
@@ -43,6 +51,7 @@ export async function validateCalibrationCapture(
   if (capturedCounts.some((count) => count !== FRAMES_PER_POINT)) throw new Error('Capture three frames per validation target.')
   const validCounts = VALIDATION_POINTS.map(() => 0)
   let rawError = 0, correctedError = 0
+  const rawResiduals: Residual[] = [], correctedResiduals: Residual[] = []
   for (const [index, sample] of capture.samples.entries()) {
     signal?.throwIfAborted()
     const result = await predictCalibrationImage(sample.image)
@@ -55,6 +64,8 @@ export async function validateCalibrationCapture(
       const corrected = applyCalibration(raw, session.record.calibration.fit)
       rawError += Math.hypot(raw.x - sample.target.x, raw.y - sample.target.y)
       correctedError += Math.hypot(corrected.x - sample.target.x, corrected.y - sample.target.y)
+      rawResiduals.push(residual(raw, sample.target, viewport))
+      correctedResiduals.push(residual(corrected, sample.target, viewport))
       validCounts[sample.pointIndex]++
     }
     onProgress?.(index + 1)
@@ -64,5 +75,9 @@ export async function validateCalibrationCapture(
   if (missing.length) throw new Error(`No valid frame at target(s) ${missing.join(', ')}. Try again.`)
   if (!Number.isFinite(rawError) || !Number.isFinite(correctedError)) throw new Error('Accuracy calculation is not finite.')
   const validFrameCount = validCounts.reduce((total, count) => total + count, 0)
-  return { rawMeanError: rawError / validFrameCount, correctedMeanError: correctedError / validFrameCount, validFrameCount }
+  return {
+    rawMeanError: rawError / validFrameCount, correctedMeanError: correctedError / validFrameCount, validFrameCount,
+    viewport, raw: errorStats(rawResiduals), corrected: errorStats(correctedResiduals),
+    correctedByTarget: biasByTarget(correctedResiduals),
+  }
 }
