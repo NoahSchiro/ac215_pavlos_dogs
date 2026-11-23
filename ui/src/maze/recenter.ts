@@ -61,6 +61,32 @@ export function holdsPavlos(state: RecenterState): boolean {
   return isRecentering(state) || state.phase === 'done'
 }
 
+/**
+ * Progress through the stare, from 0 to 1: the first half confirms it, the
+ * second half captures.
+ */
+export function recenterProgress(state: RecenterState, now: number, settings: RecenterSettings): number {
+  switch (state.phase) {
+    case 'confirming':
+      return state.fixation ? Math.min(1, Math.max(0, (now - state.fixation.since) / settings.confirmMs)) / 2 : 0
+    case 'capturing':
+      return 0.5 + Math.min(1, state.samples.length / settings.captureSamples) / 2
+    case 'done':
+      return 1
+    default:
+      return 0
+  }
+}
+
+/**
+ * True once the user has held a stare for `minSamples` predictions. Text near
+ * Pavlos should be gone by then, so it is Pavlos they keep looking at.
+ */
+export function stareHeld(state: RecenterState, minSamples: number): boolean {
+  if (state.phase === 'capturing') return true
+  return state.phase === 'confirming' && !!state.fixation && state.fixation.samples >= minSamples
+}
+
 /** Distance between two viewport-fraction points, in screen-height units. */
 function heightDistance(a: ScreenFraction, b: ScreenFraction, viewport: Viewport): number {
   return Math.hypot(((a.x - b.x) * viewport.width) / viewport.height, a.y - b.y)

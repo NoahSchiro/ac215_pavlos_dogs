@@ -3,10 +3,15 @@ import { generateMaze } from './mazeGenerator'
 import type { Maze as MazeGrid, MazePosition } from './mazeGenerator'
 import { decideDrive, type ScreenRect } from './driveAssist'
 import { isDwelling, trackFixation, type Fixation } from './dwell'
+import { gazeInZone, NO_ZONE_DWELL, trackZoneDwell, zoneProgress, type ZoneDwell } from './gazeZone'
+import { RecenterCue } from './RecenterCue'
+import { RecenterStrip } from './RecenterStrip'
 import {
   holdsPavlos,
   isRecentering,
+  recenterProgress,
   sampleRecenter,
+  stareHeld,
   startRecenter,
   type GazeShift,
   type RecenterState,
@@ -27,12 +32,16 @@ import {
   PLAYER_SIZE_PERCENT,
   RECENTER,
   RECENTER_RESULT_MS,
+  RECENTER_STRIP,
   SHOW_DRIVE_AREA,
 } from '../config'
 import './Maze.css'
 
 const ROWS = MAZE_ROWS
 const COLS = MAZE_COLS
+
+// Hide Pavlos's text once a stare has lasted this many predictions (about 0.4 s).
+const RECENTER_BUBBLE_HIDE_SAMPLES = 3
 
 interface Game {
   maze: MazeGrid
@@ -237,20 +246,55 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
     holdRef.current = holdsPavlos(recenter)
   }, [recenter])
 
+  // The Recenter strip: looking at it for RECENTER_STRIP.dwellMs starts recentering.
+  const columnRef = useRef<HTMLDivElement>(null)
+  const stripRef = useRef<HTMLButtonElement>(null)
+  const stripDwellRef = useRef<ZoneDwell>(NO_ZONE_DWELL)
+  const [stripProgress, setStripProgress] = useState(0)
+  // Time of the latest gaze sample, for drawing stare progress.
+  const [sampleTime, setSampleTime] = useState(0)
+
   useEffect(() => {
     gazeRef.current = gazePoint
     const now = Date.now()
     const viewport = currentViewport()
     fixationRef.current = trackFixation(fixationRef.current, gazePoint, now, viewport, GAZE_DWELL_RADIUS)
+    setSampleTime(now)
 
     if (gazePoint === null) {
+      stripDwellRef.current = NO_ZONE_DWELL
+      setStripProgress(0)
       setRecenter((state) => (isRecentering(state) ? { phase: 'idle' } : state))
       return
     }
+
     const rect = mazeRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const target = pavlosCentre(rect, gameRef.current.player, viewport)
-    setRecenter((state) => sampleRecenter(state, { point: gazePoint, now, target, viewport }, RECENTER))
+    if (rect) {
+      const target = pavlosCentre(rect, gameRef.current.player, viewport)
+      setRecenter((state) => sampleRecenter(state, { point: gazePoint, now, target, viewport }, RECENTER))
+    }
+
+    const column = columnRef.current?.getBoundingClientRect()
+    const strip = stripRef.current?.getBoundingClientRect()
+    if (!column || !strip || holdRef.current) {
+      stripDwellRef.current = NO_ZONE_DWELL
+      setStripProgress(0)
+      return
+    }
+    // From the strip's column past the screen edge, and a margin above and below.
+    const pad = RECENTER_STRIP.pad * viewport.height
+    const zone = { left: column.left, top: strip.top - pad, width: Infinity, height: strip.height + 2 * pad }
+    stripDwellRef.current = trackZoneDwell(
+      stripDwellRef.current, gazeInZone(gazePoint, zone, viewport), now, RECENTER_STRIP.maxMisses,
+    )
+    const progress = zoneProgress(stripDwellRef.current, now, RECENTER_STRIP.dwellMs)
+    if (progress < 1) {
+      setStripProgress(progress)
+      return
+    }
+    stripDwellRef.current = NO_ZONE_DWELL
+    setStripProgress(0)
+    setRecenter(startRecenter(now))
   }, [gazePoint])
 
   // Hand a finished shift to the gaze pipeline (once per result), show the
@@ -266,17 +310,22 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
     return () => clearTimeout(timer)
   }, [recenter])
 
-  // R starts recentering (or cancels it). Stuck detection will start it hands-free.
+  // Start recentering, or cancel it if it is running. Needs gaze.
+  const toggleRecenter = useCallback(() => {
+    if (gazeRef.current === null) return
+    setRecenter((state) => (isRecentering(state) ? { phase: 'idle' } : startRecenter(Date.now())))
+  }, [])
+
+  // R does the same as clicking the Recenter strip.
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== 'r' && event.key !== 'R') return
       if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
-      if (gazeRef.current === null) return
-      setRecenter((state) => (isRecentering(state) ? { phase: 'idle' } : startRecenter(Date.now())))
+      toggleRecenter()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [toggleRecenter])
 
   const hasGaze = gazePoint !== null
   useEffect(() => {
@@ -445,7 +494,28 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
             }}
           />
         </div>
+
+        {/* What Pavlos says while recentering, and the stare progress ring */}
+        <RecenterCue
+          state={recenter}
+          progress={recenterProgress(recenter, sampleTime, RECENTER)}
+          held={stareHeld(recenter, RECENTER_BUBBLE_HIDE_SAMPLES)}
+          player={player}
+          rows={ROWS}
+          cols={COLS}
+        />
       </div>
+
+      {/* The Recenter strip takes the right-hand column until the win message does */}
+      {hasGaze && !hasWon && (
+        <RecenterStrip
+          state={recenter}
+          progress={stripProgress}
+          onClick={toggleRecenter}
+          columnRef={columnRef}
+          stripRef={stripRef}
+        />
+      )}
 
       {/* Show the victory message and restart button after winning */}
       {hasWon && (

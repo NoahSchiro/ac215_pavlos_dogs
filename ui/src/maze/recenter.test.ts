@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addShift, applyShift, holdsPavlos, isRecentering, sampleRecenter, startRecenter,
+  addShift, applyShift, holdsPavlos, isRecentering, recenterProgress, sampleRecenter, stareHeld, startRecenter,
   type RecenterSettings, type RecenterState,
 } from './recenter'
 
@@ -88,6 +88,21 @@ describe('recentering', () => {
     const state = feed(startRecenter(0), [{ x: 0.9, y: 0.9 }, { x: 0.9, y: 0.9 }], 10_000)
     expect(state).toEqual({ phase: 'gaveUp' })
     expect(isRecentering(state)).toBe(false)
+  })
+})
+
+describe('progress', () => {
+  it('fills the first half while confirming and the second while capturing', () => {
+    let state = feed(startRecenter(0), [OFF])
+    expect(recenterProgress(state, 0, SETTINGS)).toBe(0)
+    expect(stareHeld(state, 3)).toBe(false)
+    state = feed(state, [OFF, OFF], 200) // stare since 0, now 400 ms
+    expect(recenterProgress(state, 750, SETTINGS)).toBeCloseTo(0.25, 12) // 750 of 1500 ms
+    expect(stareHeld(state, 3)).toBe(true)
+    state = feed(state, repeat(7, OFF), 600) // confirmed at 1600, one sample captured at 1800
+    expect(state.phase).toBe('capturing')
+    expect(recenterProgress(state, 1800, SETTINGS)).toBeCloseTo(0.6, 12)
+    expect(recenterProgress({ phase: 'idle' }, 0, SETTINGS)).toBe(0)
   })
 })
 

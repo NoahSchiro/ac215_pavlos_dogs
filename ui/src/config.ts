@@ -112,15 +112,16 @@ export const GAZE_DWELL_RADIUS = 0.08
 export const GAZE_TARGET_HOLD_CELLS = 0.25
 
 /**
- * Dynamic recentering: stare at Pavlos to fix a constant gaze offset. A steady
- * stare near him for RECENTER.confirmMs starts capture; the median of the next
+ * Dynamic recentering: stare at Pavlos to fix a constant gaze offset. It is
+ * started from the Recenter strip (RECENTER_STRIP). A steady stare near him
+ * for RECENTER.confirmMs then starts capture; the median of the next
  * captureSamples predictions (one per GAZE_PREDICTION_INTERVAL_MS, so about
  * 1 s) is compared with his centre, and that shift is added to later gaze.
  * Stares further than maxShift (fraction of the screen height) from him are
  * taken as looking elsewhere. Pavlos holds still meanwhile.
  */
 export const RECENTER = {
-  confirmMs: 1500,
+  confirmMs: 1000,
   captureSamples: 5,
   holdRadius: 0.08,
   maxShift: 0.25,
@@ -129,6 +130,15 @@ export const RECENTER = {
 
 /** How long Pavlos shows the recenter result before play resumes. */
 export const RECENTER_RESULT_MS = 1000
+
+/**
+ * The Recenter strip beside the maze, started by looking at it for dwellMs.
+ * Its hit zone runs from the strip's column past the right screen edge, and
+ * `pad` (fraction of the screen height) above and below the strip, so only
+ * horizontal gaze accuracy matters. Up to maxMisses stray samples in a row
+ * are forgiven.
+ */
+export const RECENTER_STRIP = { dwellMs: 1600, pad: 0.04, maxMisses: 1 }
 
 /** Outline the drive area around Pavlos while gaze is steering him. */
 export const SHOW_DRIVE_AREA = true

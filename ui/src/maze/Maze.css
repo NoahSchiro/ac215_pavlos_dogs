@@ -333,3 +333,151 @@
     flex: 0 1 auto;
   }
 }
+
+/* Recenter strip: the right-hand column during play. Looking at it fills it. */
+.maze-layout:not(:has(.maze-win)):has(.maze-recenter-column)::after {
+  display: none;
+}
+
+.maze-recenter-column {
+  flex: 1 1 0;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.maze-recenter {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  height: 60%;
+  width: min(100%, 140px);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed color-mix(in srgb, #57416b 45%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, #57416b 6%, transparent);
+  color: #57416b;
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.3;
+  text-align: center;
+  cursor: pointer;
+}
+
+.maze-recenter[data-active='true'] {
+  border-style: solid;
+  border-color: #22b8cf;
+}
+
+.maze-recenter-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(34, 211, 238, 0.35);
+  transition: height 200ms linear;
+}
+
+.maze-recenter-icon,
+.maze-recenter-label {
+  position: relative;
+}
+
+.maze-recenter-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+:root[data-theme='dark'] .maze-recenter {
+  border-color: color-mix(in srgb, #d4c4ed 45%, transparent);
+  background: color-mix(in srgb, #d4c4ed 6%, transparent);
+  color: #d4c4ed;
+}
+
+/* Stare progress ring around Pavlos: cyan while confirming, amber while capturing. */
+.recenter-ring {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.recenter-ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.recenter-ring circle {
+  fill: none;
+  stroke-width: 7;
+}
+
+.recenter-ring-track {
+  stroke: rgba(34, 211, 238, 0.25);
+}
+
+.recenter-ring-fill {
+  stroke: #22b8cf;
+  stroke-linecap: round;
+  stroke-dasharray: var(--progress) 1;
+  transition: stroke-dasharray 200ms linear;
+}
+
+.recenter-ring.capturing .recenter-ring-fill {
+  stroke: #f59e0b;
+}
+
+/* Pavlos's speech bubble. */
+.recenter-bubble {
+  position: absolute;
+  z-index: 3;
+  padding: 6px 12px;
+  border: 2px solid #57416b;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #57416b;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme='dark'] .recenter-bubble {
+  border-color: #d4c4ed;
+  background: #2f2942;
+  color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maze-recenter-fill,
+  .recenter-ring-fill {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .maze-recenter-column {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 260px;
+    align-self: center;
+  }
+
+  .maze-recenter {
+    height: auto;
+    min-height: 56px;
+    width: 100%;
+    flex-direction: row;
+  }
+}
