@@ -247,11 +247,28 @@ describe('Calibration', () => {
     expect(screen.getByText('Point 2 of 9')).toBeInTheDocument()
   })
 
+  it('shows the press-Space prompt under each target, and hides it during the burst', async () => {
+    let finish!: (frames: Blob[]) => void
+    await renderStarted()
+    const prompt = screen.getByTestId('calibration-prompt')
+    expect(prompt).toHaveTextContent('Look at the centre, press Space')
+    expect(prompt).toHaveStyle({ left: '10%', top: '10%' })
+
+    mockedBurst.mockReturnValueOnce(new Promise((r) => (finish = r)))
+    await pressSpace()
+    expect(screen.queryByTestId('calibration-prompt')).not.toBeInTheDocument()
+    expect(screen.getByTestId('crosshair')).toHaveClass('capturing')
+
+    await act(async () => finish(fakeFrames()))
+    expect(screen.getByTestId('calibration-prompt')).toHaveStyle({ left: '50%', top: '10%' })
+    expect(screen.getByTestId('crosshair')).not.toHaveClass('capturing')
+  })
+
   it('shows an error and stays on the same point when capture fails', async () => {
     mockedBurst.mockRejectedValueOnce(new Error('no frame'))
     await renderStarted()
     await pressSpace()
-    expect(screen.getByText(/Capture failed/)).toBeInTheDocument()
+    expect(screen.getByTestId('calibration-prompt')).toHaveTextContent(/Capture failed/)
     expect(screen.getByText('Point 1 of 9')).toBeInTheDocument()
 
     await pressSpace()

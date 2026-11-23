@@ -1,19 +1,85 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { generateMaze } from './mazeGenerator'
-import type { MazePosition } from './mazeGenerator'
+import type { Maze as MazeGrid, MazePosition } from './mazeGenerator'
+import { decideDrive } from './driveAssist'
+import { isDwelling, trackFixation, type Fixation } from './dwell'
+import type { Direction } from './gazeDirection'
+import type { ScreenFraction } from '../vision/model'
+import { currentViewport } from '../vision/viewport'
 import {
+  GAZE_DRIVE_RADIUS,
+  GAZE_DWELL_MS,
+  GAZE_DWELL_RADIUS,
   GAZE_MOVE_INTERVAL_MS,
+  GAZE_PULL_SCALE,
+  GAZE_TARGET_HOLD_CELLS,
   KEYBOARD_MOVE_INTERVAL_MS,
   MAZE_COLS,
   MAZE_ROWS,
   PLAYER_SIZE_PERCENT,
+  SHOW_DRIVE_AREA,
 } from '../config'
 import './Maze.css'
 
 const ROWS = MAZE_ROWS
 const COLS = MAZE_COLS
 
-type Direction = 'up' | 'down' | 'left' | 'right'
+interface Game {
+  maze: MazeGrid
+  cheese: MazePosition
+  player: MazePosition & { rotation: number; hasMoved: boolean }
+}
+
+// Move Pavlos one cell, unless a wall, the maze edge, or a win stops him.
+function stepPlayer(game: Game, direction: Direction): Game {
+  const current = game.player
+
+  // Stop movement once Pavlos reaches the cheese.
+  if (current.row === game.cheese.row && current.col === game.cheese.col) {
+    return game
+  }
+
+  const cell = game.maze[current.row][current.col]
+  let nextRow = current.row
+  let nextCol = current.col
+
+  // Check for a wall before moving.
+  switch (direction) {
+    case 'up':
+      if (cell.walls.top) return game
+      nextRow -= 1
+      break
+    case 'down':
+      if (cell.walls.bottom) return game
+      nextRow += 1
+      break
+    case 'left':
+      if (cell.walls.left) return game
+      nextCol -= 1
+      break
+    case 'right':
+      if (cell.walls.right) return game
+      nextCol += 1
+      break
+  }
+
+  // Keep the player inside the maze.
+  if (nextRow < 0 || nextRow >= ROWS || nextCol < 0 || nextCol >= COLS) {
+    return game
+  }
+
+  return {
+    ...game,
+    player: {
+      row: nextRow,
+      col: nextCol,
+      rotation:
+        current.rotation +
+        (direction === 'right' || direction === 'down' ? 90 : -90),
+      hasMoved: true,
+    },
+  }
+}
 
 const KEY_DIRECTIONS: Record<string, Direction> = {
   ArrowUp: 'up',
@@ -47,12 +113,15 @@ function randomPositions(): {
 }
 
 interface MazeProps {
-  gazeDirection?: 'up' | 'down' | 'left' | 'right' | null
+  /** Latest smoothed gaze, as viewport fractions; null while gaze is unavailable. */
+  gazePoint?: ScreenFraction | null
 }
 
-export default function Maze({ gazeDirection = null }: MazeProps) {
+export default function Maze({ gazePoint = null }: MazeProps) {
+  const mazeRef = useRef<HTMLDivElement>(null)
+
   // Generate the maze and starting positions together.
-  const [game, setGame] = useState(() => {
+  const [game, setGame] = useState<Game>(() => {
     const positions = randomPositions()
 
     return {
@@ -75,63 +144,7 @@ export default function Maze({ gazeDirection = null }: MazeProps) {
 
   const movePlayer = useCallback(
     (direction: Direction) => {
-      setGame((currentGame) => {
-        const current = currentGame.player
-
-        // Stop movement once Pavlos reaches the cheese.
-        if (
-          current.row === currentGame.cheese.row &&
-          current.col === currentGame.cheese.col
-        ) {
-          return currentGame
-        }
-
-        const cell = currentGame.maze[current.row][current.col]
-        let nextRow = current.row
-        let nextCol = current.col
-
-        // Check for a wall before moving.
-        switch (direction) {
-          case 'up':
-            if (cell.walls.top) return currentGame
-            nextRow -= 1
-            break
-          case 'down':
-            if (cell.walls.bottom) return currentGame
-            nextRow += 1
-            break
-          case 'left':
-            if (cell.walls.left) return currentGame
-            nextCol -= 1
-            break
-          case 'right':
-            if (cell.walls.right) return currentGame
-            nextCol += 1
-            break
-        }
-
-        // Keep the player inside the maze.
-        if (
-          nextRow < 0 ||
-          nextRow >= ROWS ||
-          nextCol < 0 ||
-          nextCol >= COLS
-        ) {
-          return currentGame
-        }
-
-        return {
-          ...currentGame,
-          player: {
-            row: nextRow,
-            col: nextCol,
-            rotation:
-              current.rotation +
-              (direction === 'right' || direction === 'down' ? 90 : -90),
-            hasMoved: true,
-          },
-        }
-      })
+      setGame((currentGame) => stepPlayer(currentGame, direction))
     },
     [],
   )
@@ -186,18 +199,52 @@ export default function Maze({ gazeDirection = null }: MazeProps) {
   }, [movePlayer])
 
 
-  // Move Pavlos using gaze predictions.
-useEffect(() => {
-  if (!gazeDirection) return
+  // Steer by gaze. Each tick re-decides from Pavlos's current cell and the
+  // latest gaze point, so he stops on arriving instead of running on until
+  // the next prediction.
+  const gazeRef = useRef(gazePoint)
+  const fixationRef = useRef<Fixation | null>(null)
+  useEffect(() => {
+    gazeRef.current = gazePoint
+    fixationRef.current = trackFixation(
+      fixationRef.current, gazePoint, Date.now(), currentViewport(), GAZE_DWELL_RADIUS,
+    )
+  }, [gazePoint])
 
-  movePlayer(gazeDirection)
+  const hasGaze = gazePoint !== null
+  useEffect(() => {
+    if (!hasGaze) return
+    // The cell Pavlos is heading for (or resting in), kept against jitter.
+    let heldTarget: MazePosition | null = null
 
-  const timer = setInterval(() => {
-    movePlayer(gazeDirection)
-  }, GAZE_MOVE_INTERVAL_MS)
+    function tick() {
+      const rect = mazeRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const viewport = currentViewport()
+      const dwelling = isDwelling(fixationRef.current, Date.now(), GAZE_DWELL_MS)
+      setGame((currentGame) => {
+        const decision = decideDrive(
+          gazeRef.current, currentGame.player, currentGame.maze, rect, viewport,
+          {
+            radius: GAZE_DRIVE_RADIUS,
+            pullScale: GAZE_PULL_SCALE,
+            dwelling,
+            heldTarget,
+            holdCells: GAZE_TARGET_HOLD_CELLS,
+          },
+        )
+        // Idempotent, so a repeated updater call (React strict mode) agrees.
+        heldTarget = decision.kind === 'drive'
+          ? decision.target
+          : decision.kind === 'stop' ? currentGame.player : null
+        return decision.kind === 'drive' ? stepPlayer(currentGame, decision.path[0]) : currentGame
+      })
+    }
 
-  return () => clearInterval(timer)
-}, [gazeDirection, movePlayer])
+    tick()
+    const timer = setInterval(tick, GAZE_MOVE_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [hasGaze])
 
   // Winning depends on the cheese's randomized position.
   const hasWon = player.row === cheese.row && player.col === cheese.col
@@ -226,12 +273,15 @@ useEffect(() => {
     <>
       {/* Display the generated maze */}
       <div
+        ref={mazeRef}
         className="maze"
         role="group"
         aria-label="Maze"
         style={{
           gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))`,
+          // Square cells, whatever the grid shape.
+          aspectRatio: `${COLS} / ${ROWS}`,
         }}
       >
         {/* Render each cell and its walls */}
@@ -273,6 +323,34 @@ useEffect(() => {
           >
             <img src="/cheese.svg" alt="" draggable={false} />
           </div>
+        )}
+
+        {/* Outline where gaze steers Pavlos, and the ring where a stare pulls him; both move with him */}
+        {SHOW_DRIVE_AREA && hasGaze && !hasWon && (
+          <>
+            <div
+              className="maze-drive-area maze-pull-area"
+              data-testid="pull-area"
+              aria-hidden="true"
+              style={{
+                left: `${((player.col + 0.5) / COLS) * 100}%`,
+                top: `${((player.row + 0.5) / ROWS) * 100}%`,
+                '--drive-rx': GAZE_DRIVE_RADIUS.x * GAZE_PULL_SCALE,
+                '--drive-ry': GAZE_DRIVE_RADIUS.y * GAZE_PULL_SCALE,
+              } as CSSProperties}
+            />
+            <div
+              className="maze-drive-area"
+              data-testid="drive-area"
+              aria-hidden="true"
+              style={{
+                left: `${((player.col + 0.5) / COLS) * 100}%`,
+                top: `${((player.row + 0.5) / ROWS) * 100}%`,
+                '--drive-rx': GAZE_DRIVE_RADIUS.x,
+                '--drive-ry': GAZE_DRIVE_RADIUS.y,
+              } as CSSProperties}
+            />
+          </>
         )}
 
         {/* Display Pavlos at his current position */}

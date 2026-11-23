@@ -61,6 +61,23 @@ test('reports worse correction without clipping the accuracy metric', async () =
   expect(summary.correctedMeanError).toBeCloseTo(2, 12)
 })
 
+test('breaks the error down by axis and target in viewport-height units', async () => {
+  const session = testSession()
+  // Calibrated predictions land 5% of the width right and 10% of the height low.
+  const fit = { weight: [[1, 0], [0, 1]] as const, intercept: [0.05, 0.1] as const, lambda: 0.1 }
+  const images = capture()
+  images.samples.forEach(({ target }) => predict.mockResolvedValueOnce(result(target.x, target.y)))
+  const summary = await validateCalibrationCapture(images, { ...session, record: { ...session.record,
+    calibration: { ...session.record.calibration, fit } } })
+  expect(summary.viewport).toEqual({ width: 800, height: 600 })
+  expect(summary.raw.x.p90Abs).toBe(0)
+  expect(summary.corrected.x.bias).toBeCloseTo(0.05 * 800 / 600, 12)
+  expect(summary.corrected.y.bias).toBeCloseTo(0.1, 12)
+  expect(summary.corrected.y.p90Abs).toBeCloseTo(0.1, 12)
+  expect(summary.correctedByTarget).toHaveLength(4)
+  expect(summary.correctedByTarget.every((t) => t.frames === 3)).toBe(true)
+})
+
 test.each(['pending', 'camera', 'old', 'target'] as const)('rejects invalid validation input before inference: %s', async (kind) => {
   const session = testSession()
   const images = capture()

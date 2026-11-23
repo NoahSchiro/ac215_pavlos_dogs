@@ -234,20 +234,29 @@ export function Calibration({ onComplete, onCancel, mode = 'calibration', expect
 
       {status === 'ready' && started && !layoutError && (
         <>
-          <Crosshair point={point} />
+          <Crosshair point={point} capturing={capturing} />
+          {/* The prompt sits under the target, where the user is already looking.
+              It hides during the burst so reading it cannot pull gaze below the target. */}
+          {!capturing && (
+            <div
+              className="calibration-prompt"
+              data-testid="calibration-prompt"
+              style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+            >
+              {captureError
+                ? <span className="capture-error">{captureError}</span>
+                : <>Look at the centre, press <kbd>Space</kbd></>}
+            </div>
+          )}
           <div className="calibration-hud">
             {!layoutRef.current?.fullscreen && <p>Full screen is unavailable. Keep this window size and position unchanged.</p>}
             <div>
-              <strong>
-                Point {pointIndex + 1} of {total}
-              </strong>
+              <strong>Point {pointIndex + 1} of {total}</strong>
+              {' · '}
+              {capturing
+                ? <span className="capturing">Capturing, hold still</span>
+                : <span>Esc to cancel</span>}
             </div>
-            {capturing ? (
-              <div className="capturing">Capturing, hold still</div>
-            ) : (
-              <div>Look at the target and press Space. Press Escape to cancel.</div>
-            )}
-            {captureError && <div className="capture-error">{captureError}</div>}
           </div>
         </>
       )}

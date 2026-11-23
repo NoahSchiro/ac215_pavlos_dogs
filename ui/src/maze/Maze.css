@@ -2,7 +2,8 @@
 .maze {
   display: grid;
 
-  /* Size is controlled by config.ts through --maze-size. */
+  /* Size is controlled by config.ts through --maze-size; Maze.tsx sets the
+     aspect ratio from the grid so cells stay square. */
   width: var(--maze-size);
   max-width: 100%;
   aspect-ratio: 1;
@@ -27,6 +28,30 @@
   transition: left 160ms linear, top 160ms linear;
   z-index: 1;
   pointer-events: none;
+}
+
+/*
+ * Gaze drive area: an ellipse centred on Pavlos. Its half-widths are fractions
+ * of the screen height (--drive-rx, --drive-ry from config.ts), matching how
+ * driveAssist.ts measures it. It may extend past the maze edge.
+ */
+.maze-drive-area {
+  position: absolute;
+  width: calc(var(--drive-rx) * 200dvh);
+  height: calc(var(--drive-ry) * 200dvh);
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--maze-wall) 45%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--maze-wall) 6%, transparent);
+  transition: left 160ms linear, top 160ms linear;
+  pointer-events: none;
+}
+
+/* The pull ring: a held stare between this and the drive area pulls Pavlos. */
+.maze-pull-area {
+  border: 2px dotted color-mix(in srgb, var(--maze-wall) 25%, transparent);
+  background: none;
 }
 
 .maze-player img {
