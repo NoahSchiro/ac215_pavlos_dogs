@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import Maze from './Maze'
 import { generateMaze } from './mazeGenerator'
-import { GAZE_DRIVE_RADIUS, GAZE_DWELL_MS, GAZE_PULL_SCALE, MAZE_COLS, MAZE_ROWS, RECENTER, RECENTER_RESULT_MS, RECENTER_STRIP } from '../config'
+import { GAZE_DRIVE_RADIUS, GAZE_DWELL_MS, GAZE_PULL_SCALE, MAZE_COLS, MAZE_ROWS, RECENTER, RECENTER_RESULT_MS, RECENTER_STRIP, STUCK } from '../config'
 
 // Mock the maze generator to create a predictable maze for testing.
 vi.mock('./mazeGenerator', () => ({
@@ -442,6 +442,30 @@ describe('Maze gaze steering', () => {
       expect(recenterPhase()).toBe('done')
       expect(screen.getByTestId('recenter-bubble')).toHaveTextContent('Done')
       expect(screen.queryByTestId('recenter-ring')).not.toBeInTheDocument()
+    })
+
+    it('suggests recentering when Pavlos is stuck, but never starts it', () => {
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      // Restless gaze just outside the drive ellipse: never a held stare, so he stays put.
+      const nearA = inwardTarget(start, 4)
+      const toward = start.col === 0 ? 1 : -1
+      const a = gazeAtCell(nearA.row, nearA.col)
+      const b = { x: a.x + (toward * 1.4 * CELL) / 900, y: a.y }
+      for (let t = 0; t < STUCK.stillMs + 400; t += 200) {
+        rerender(<Maze gazePoint={(t / 200) % 2 ? { ...b } : { ...a }} />)
+        act(() => { vi.advanceTimersByTime(200) })
+      }
+      expect(getPlayerPosition()).toEqual(start)
+      expect(screen.getByTestId('recenter-bubble')).toHaveTextContent('Stuck? Look at Recenter')
+      expect(screen.getByTestId('recenter-strip')).toHaveAttribute('data-prompt', 'true')
+      expect(recenterPhase()).toBe('idle')
+
+      // Starting recentering clears the prompt.
+      pressKey('r')
+      rerender(<Maze gazePoint={{ ...a }} />)
+      expect(screen.getByTestId('recenter-strip')).toHaveAttribute('data-prompt', 'false')
+      expect(screen.getByTestId('recenter-bubble')).toHaveTextContent('Stare at me')
     })
 
     it('hides the strip without gaze', () => {

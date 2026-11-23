@@ -5,6 +5,8 @@ interface Props {
   state: RecenterState
   /** How far a look at the strip is toward starting recentering, 0 to 1. */
   progress: number
+  /** Stuck detection suggests recentering: draw attention to the strip. */
+  prompt: boolean
   onClick: () => void
   columnRef: Ref<HTMLDivElement>
   stripRef: Ref<HTMLButtonElement>
@@ -26,7 +28,7 @@ function label(state: RecenterState): string {
  * The Recenter strip in the column beside the maze. Looking at it fills it;
  * full starts recentering. A click (or R) works too.
  */
-export function RecenterStrip({ state, progress, onClick, columnRef, stripRef }: Props) {
+export function RecenterStrip({ state, progress, prompt, onClick, columnRef, stripRef }: Props) {
   const active = state.phase === 'confirming' || state.phase === 'capturing'
   return (
     <div className="maze-recenter-column" ref={columnRef}>
@@ -35,6 +37,7 @@ export function RecenterStrip({ state, progress, onClick, columnRef, stripRef }:
         ref={stripRef}
         className="maze-recenter"
         data-active={active}
+        data-prompt={prompt && !active}
         data-testid="recenter-strip"
         onClick={onClick}
       >

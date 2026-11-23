@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { generateMaze } from './mazeGenerator'
 import type { Maze as MazeGrid, MazePosition } from './mazeGenerator'
-import { decideDrive, type ScreenRect } from './driveAssist'
+import { decideDrive, gazeRelation, type ScreenRect } from './driveAssist'
 import { isDwelling, trackFixation, type Fixation } from './dwell'
 import { gazeInZone, NO_ZONE_DWELL, trackZoneDwell, zoneProgress, type ZoneDwell } from './gazeZone'
 import { RecenterCue } from './RecenterCue'
 import { RecenterStrip } from './RecenterStrip'
+import { isStuckPrompt, NEW_STUCK, quietStuck, trackStuck, type StuckState } from './stuck'
 import {
   holdsPavlos,
   isRecentering,
@@ -34,6 +35,7 @@ import {
   RECENTER_RESULT_MS,
   RECENTER_STRIP,
   SHOW_DRIVE_AREA,
+  STUCK,
 } from '../config'
 import './Maze.css'
 
@@ -253,6 +255,9 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
   const [stripProgress, setStripProgress] = useState(0)
   // Time of the latest gaze sample, for drawing stare progress.
   const [sampleTime, setSampleTime] = useState(0)
+  // Stuck detection, which only suggests recentering.
+  const stuckRef = useRef<StuckState>(NEW_STUCK)
+  const [stuckPrompt, setStuckPrompt] = useState(false)
 
   useEffect(() => {
     gazeRef.current = gazePoint
@@ -264,6 +269,8 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
     if (gazePoint === null) {
       stripDwellRef.current = NO_ZONE_DWELL
       setStripProgress(0)
+      stuckRef.current = NEW_STUCK
+      setStuckPrompt(false)
       setRecenter((state) => (isRecentering(state) ? { phase: 'idle' } : state))
       return
     }
@@ -273,6 +280,18 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
       const target = pavlosCentre(rect, gameRef.current.player, viewport)
       setRecenter((state) => sampleRecenter(state, { point: gazePoint, now, target, viewport }, RECENTER))
     }
+
+    // Stuck: Pavlos stays put while the user steers near him, or rocks between two cells.
+    const current = gameRef.current
+    const won = current.player.row === current.cheese.row && current.player.col === current.cheese.col
+    if (holdRef.current || won) {
+      stuckRef.current = quietStuck(stuckRef.current, now, STUCK)
+    } else if (rect) {
+      const relation = gazeRelation(gazePoint, current.player, current.maze, rect, viewport, GAZE_DRIVE_RADIUS)
+      const trying = !!relation && relation.reach <= GAZE_PULL_SCALE ** 2 && !relation.inOwnCell
+      stuckRef.current = trackStuck(stuckRef.current, { now, player: current.player, trying }, STUCK)
+    }
+    setStuckPrompt(isStuckPrompt(stuckRef.current))
 
     const column = columnRef.current?.getBoundingClientRect()
     const strip = stripRef.current?.getBoundingClientRect()
@@ -500,6 +519,7 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
           state={recenter}
           progress={recenterProgress(recenter, sampleTime, RECENTER)}
           held={stareHeld(recenter, RECENTER_BUBBLE_HIDE_SAMPLES)}
+          stuck={stuckPrompt}
           player={player}
           rows={ROWS}
           cols={COLS}
@@ -511,6 +531,7 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
         <RecenterStrip
           state={recenter}
           progress={stripProgress}
+          prompt={stuckPrompt}
           onClick={toggleRecenter}
           columnRef={columnRef}
           stripRef={stripRef}

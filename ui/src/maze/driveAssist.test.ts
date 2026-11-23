@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decideDrive, type DriveOptions, type ScreenRect } from './driveAssist'
+import { decideDrive, gazeRelation, type DriveOptions, type ScreenRect } from './driveAssist'
 import type { Direction } from './gazeDirection'
 import { createGrid, generateMaze, type Maze, type MazePosition } from './mazeGenerator'
 
@@ -191,6 +191,19 @@ describe('the pull ring', () => {
   it('still respects walls', () => {
     const maze = carve(createGrid(10, 10), CENTER, ['up'])
     expect(decide(maze, 3.5, 0, { dwelling: true })).toEqual({ kind: 'stop' })
+  })
+})
+
+describe('gazeRelation', () => {
+  const relate = (dCols: number, dRows: number) =>
+    gazeRelation(gazeAt(CENTER, dCols, dRows), CENTER, openGrid(), RECT, VIEWPORT, OPTIONS.radius)
+
+  it('measures the gaze in ellipse units, and spots a look at Pavlos himself', () => {
+    expect(relate(0.4, -0.4)).toMatchObject({ inOwnCell: true })
+    expect(relate(0.6, 0)).toMatchObject({ inOwnCell: false })
+    expect(relate(2.5, 0)?.reach).toBeCloseTo(1, 12) // 150 px: the ellipse's edge
+    expect(relate(0, 5)?.reach).toBeCloseTo(2.25, 12) // 300 px of 200 px tall
+    expect(gazeRelation(null, CENTER, openGrid(), RECT, VIEWPORT, OPTIONS.radius)).toBeNull()
   })
 })
 

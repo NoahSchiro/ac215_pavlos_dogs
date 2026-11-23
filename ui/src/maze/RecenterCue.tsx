@@ -8,13 +8,17 @@ interface Props {
   progress: number
   /** The user is holding a stare: show the ring only, no text to read. */
   held: boolean
+  /** Stuck detection suggests recentering. */
+  stuck: boolean
   player: MazePosition
   rows: number
   cols: number
 }
 
-function message(state: RecenterState, held: boolean): string | null {
+function message(state: RecenterState, held: boolean, stuck: boolean): string | null {
   switch (state.phase) {
+    case 'idle':
+      return stuck ? 'Stuck? Look at Recenter →' : null
     case 'confirming':
       if (held) return null
       return state.retry ? 'Missed, stare at me again' : 'Stare at me'
@@ -28,13 +32,13 @@ function message(state: RecenterState, held: boolean): string | null {
 }
 
 /**
- * What Pavlos says during recentering, and a progress ring around him. The
+ * What Pavlos says when he seems stuck and during recentering, and a progress ring around him. The
  * bubble disappears once a stare is held, because reading it would pull the
  * stare off Pavlos and skew the measured offset.
  */
-export function RecenterCue({ state, progress, held, player, rows, cols }: Props) {
-  if (state.phase === 'idle') return null
-  const text = message(state, held)
+export function RecenterCue({ state, progress, held, stuck, player, rows, cols }: Props) {
+  const text = message(state, held, stuck)
+  if (state.phase === 'idle' && !text) return null
   const showRing = state.phase === 'confirming' || state.phase === 'capturing'
   const left = `${((player.col + 0.5) / cols) * 100}%`
   // Speak from above, or from below on the top row; keep clear of the side edges.

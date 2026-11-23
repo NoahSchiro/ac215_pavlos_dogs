@@ -155,3 +155,38 @@ function reachableCells(maze: Maze, start: MazePosition, inside: (p: MazePositio
   }
   return found
 }
+
+/** Where the gaze is relative to Pavlos. */
+export interface GazeRelation {
+  /** Squared ellipse distance from his centre: 1 is the drive ellipse's edge. */
+  reach: number
+  /** Inside his own cell: the user is looking at him (stopping on purpose). */
+  inOwnCell: boolean
+}
+
+/** Measure the gaze against Pavlos, as decideDrive does; null for unusable input. */
+export function gazeRelation(
+  gaze: ScreenFraction | null | undefined,
+  player: MazePosition,
+  maze: Maze,
+  mazeRect: ScreenRect,
+  viewport: Viewport,
+  radius: DriveRadius,
+): GazeRelation | null {
+  const rows = maze.length
+  const cols = maze[0]?.length ?? 0
+  if (!gaze || !Number.isFinite(gaze.x) || !Number.isFinite(gaze.y) ||
+      !positive(viewport.width) || !positive(viewport.height) ||
+      !positive(mazeRect.width) || !positive(mazeRect.height) ||
+      !positive(radius.x) || !positive(radius.y) || rows === 0 || cols === 0) {
+    return null
+  }
+  const cellWidth = mazeRect.width / cols
+  const cellHeight = mazeRect.height / rows
+  const dx = gaze.x * viewport.width - (mazeRect.left + (player.col + 0.5) * cellWidth)
+  const dy = gaze.y * viewport.height - (mazeRect.top + (player.row + 0.5) * cellHeight)
+  return {
+    reach: (dx / (radius.x * viewport.height)) ** 2 + (dy / (radius.y * viewport.height)) ** 2,
+    inOwnCell: Math.abs(dx) <= cellWidth / 2 && Math.abs(dy) <= cellHeight / 2,
+  }
+}

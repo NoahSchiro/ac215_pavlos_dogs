@@ -140,6 +140,23 @@ export const RECENTER_RESULT_MS = 1000
  */
 export const RECENTER_STRIP = { dwellMs: 1600, pad: 0.04, maxMisses: 1 }
 
+/**
+ * Stuck detection: prompt "Stuck? Look at Recenter" (it never recenters by
+ * itself) when Pavlos stays in one cell for stillMs while gaze is near him
+ * (inside the pull ring) but not on him, or when he rocks back and forth:
+ * rockMoves or more moves within windowMs over at most rockCells cells. The
+ * prompt shows for promptMs; after it, or after recentering, none comes for
+ * cooldownMs.
+ */
+export const STUCK = {
+  stillMs: 4000,
+  windowMs: 4000,
+  rockMoves: 4,
+  rockCells: 2,
+  promptMs: 6000,
+  cooldownMs: 15_000,
+}
+
 /** Outline the drive area around Pavlos while gaze is steering him. */
 export const SHOW_DRIVE_AREA = true
 
