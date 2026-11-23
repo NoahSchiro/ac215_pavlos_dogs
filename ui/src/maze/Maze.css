@@ -48,6 +48,12 @@
   pointer-events: none;
 }
 
+/* The pull ring: a held stare between this and the drive area pulls Pavlos. */
+.maze-pull-area {
+  border: 2px dotted color-mix(in srgb, var(--maze-wall) 25%, transparent);
+  background: none;
+}
+
 .maze-player img {
   display: block;
   width: 100%;

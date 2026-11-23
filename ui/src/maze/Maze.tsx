@@ -2,12 +2,17 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { generateMaze } from './mazeGenerator'
 import type { Maze as MazeGrid, MazePosition } from './mazeGenerator'
 import { decideDrive } from './driveAssist'
+import { isDwelling, trackFixation, type Fixation } from './dwell'
 import type { Direction } from './gazeDirection'
 import type { ScreenFraction } from '../vision/model'
 import { currentViewport } from '../vision/viewport'
 import {
   GAZE_DRIVE_RADIUS,
+  GAZE_DWELL_MS,
+  GAZE_DWELL_RADIUS,
   GAZE_MOVE_INTERVAL_MS,
+  GAZE_PULL_SCALE,
+  GAZE_TARGET_HOLD_CELLS,
   KEYBOARD_MOVE_INTERVAL_MS,
   MAZE_COLS,
   MAZE_ROWS,
@@ -198,22 +203,40 @@ export default function Maze({ gazePoint = null }: MazeProps) {
   // latest gaze point, so he stops on arriving instead of running on until
   // the next prediction.
   const gazeRef = useRef(gazePoint)
+  const fixationRef = useRef<Fixation | null>(null)
   useEffect(() => {
     gazeRef.current = gazePoint
+    fixationRef.current = trackFixation(
+      fixationRef.current, gazePoint, Date.now(), currentViewport(), GAZE_DWELL_RADIUS,
+    )
   }, [gazePoint])
 
   const hasGaze = gazePoint !== null
   useEffect(() => {
     if (!hasGaze) return
+    // The cell Pavlos is heading for (or resting in), kept against jitter.
+    let heldTarget: MazePosition | null = null
 
     function tick() {
       const rect = mazeRef.current?.getBoundingClientRect()
       if (!rect) return
       const viewport = currentViewport()
+      const dwelling = isDwelling(fixationRef.current, Date.now(), GAZE_DWELL_MS)
       setGame((currentGame) => {
         const decision = decideDrive(
-          gazeRef.current, currentGame.player, currentGame.maze, rect, viewport, GAZE_DRIVE_RADIUS,
+          gazeRef.current, currentGame.player, currentGame.maze, rect, viewport,
+          {
+            radius: GAZE_DRIVE_RADIUS,
+            pullScale: GAZE_PULL_SCALE,
+            dwelling,
+            heldTarget,
+            holdCells: GAZE_TARGET_HOLD_CELLS,
+          },
         )
+        // Idempotent, so a repeated updater call (React strict mode) agrees.
+        heldTarget = decision.kind === 'drive'
+          ? decision.target
+          : decision.kind === 'stop' ? currentGame.player : null
         return decision.kind === 'drive' ? stepPlayer(currentGame, decision.path[0]) : currentGame
       })
     }
@@ -302,19 +325,32 @@ export default function Maze({ gazePoint = null }: MazeProps) {
           </div>
         )}
 
-        {/* Outline where gaze can steer Pavlos; it moves with him */}
+        {/* Outline where gaze steers Pavlos, and the ring where a stare pulls him; both move with him */}
         {SHOW_DRIVE_AREA && hasGaze && !hasWon && (
-          <div
-            className="maze-drive-area"
-            data-testid="drive-area"
-            aria-hidden="true"
-            style={{
-              left: `${((player.col + 0.5) / COLS) * 100}%`,
-              top: `${((player.row + 0.5) / ROWS) * 100}%`,
-              '--drive-rx': GAZE_DRIVE_RADIUS.x,
-              '--drive-ry': GAZE_DRIVE_RADIUS.y,
-            } as CSSProperties}
-          />
+          <>
+            <div
+              className="maze-drive-area maze-pull-area"
+              data-testid="pull-area"
+              aria-hidden="true"
+              style={{
+                left: `${((player.col + 0.5) / COLS) * 100}%`,
+                top: `${((player.row + 0.5) / ROWS) * 100}%`,
+                '--drive-rx': GAZE_DRIVE_RADIUS.x * GAZE_PULL_SCALE,
+                '--drive-ry': GAZE_DRIVE_RADIUS.y * GAZE_PULL_SCALE,
+              } as CSSProperties}
+            />
+            <div
+              className="maze-drive-area"
+              data-testid="drive-area"
+              aria-hidden="true"
+              style={{
+                left: `${((player.col + 0.5) / COLS) * 100}%`,
+                top: `${((player.row + 0.5) / ROWS) * 100}%`,
+                '--drive-rx': GAZE_DRIVE_RADIUS.x,
+                '--drive-ry': GAZE_DRIVE_RADIUS.y,
+              } as CSSProperties}
+            />
+          </>
         )}
 
         {/* Display Pavlos at his current position */}

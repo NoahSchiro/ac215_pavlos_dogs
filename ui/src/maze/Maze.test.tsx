@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import Maze from './Maze'
 import { generateMaze } from './mazeGenerator'
-import { GAZE_DRIVE_RADIUS, MAZE_COLS, MAZE_ROWS } from '../config'
+import { GAZE_DRIVE_RADIUS, GAZE_DWELL_MS, GAZE_PULL_SCALE, MAZE_COLS, MAZE_ROWS } from '../config'
 
 // Mock the maze generator to create a predictable maze for testing.
 vi.mock('./mazeGenerator', () => ({
@@ -222,7 +222,7 @@ describe('Maze', () => {
 
 describe('Maze gaze steering', () => {
   // A 900 px tall viewport with 60 px cells: the drive ellipse reaches
-  // 0.25 * 900 = 225 px (3.75 cells) sideways.
+  // 0.25 * 900 = 225 px (3.75 cells) sideways, the pull ring 1.5x that.
   const CELL = 60
 
   beforeEach(() => {
@@ -264,13 +264,26 @@ describe('Maze gaze steering', () => {
     expect(getPlayerPosition()).toEqual(target)
   })
 
-  it('ignores gaze outside the drive ellipse (looking around)', () => {
+  it('ignores a glance just outside the drive ellipse, but a held stare pulls Pavlos there', () => {
     const { rerender } = render(<Maze />)
     const start = getPlayerPosition()
-    const far = inwardTarget(start, 5)
+    const near = inwardTarget(start, 5) // 300 px: past the ellipse (225 px), inside the pull ring (337 px)
+
+    rerender(<Maze gazePoint={gazeAtCell(near.row, near.col)} />)
+    act(() => { vi.advanceTimersByTime(GAZE_DWELL_MS - 100) })
+    expect(getPlayerPosition()).toEqual(start)
+
+    act(() => { vi.advanceTimersByTime(2000) })
+    expect(getPlayerPosition()).toEqual(near)
+  })
+
+  it('ignores even a held stare beyond the pull ring (looking around)', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const far = inwardTarget(start, 8)
 
     rerender(<Maze gazePoint={gazeAtCell(far.row, far.col)} />)
-    act(() => { vi.advanceTimersByTime(1000) })
+    act(() => { vi.advanceTimersByTime(3000) })
     expect(getPlayerPosition()).toEqual(start)
   })
 
@@ -314,8 +327,12 @@ describe('Maze gaze steering', () => {
     expect(area.style.top).toBe(player.style.top)
     expect(area.style.getPropertyValue('--drive-rx')).toBe(String(GAZE_DRIVE_RADIUS.x))
     expect(area.style.getPropertyValue('--drive-ry')).toBe(String(GAZE_DRIVE_RADIUS.y))
+    const pull = screen.getByTestId('pull-area')
+    expect(pull.style.left).toBe(player.style.left)
+    expect(pull.style.getPropertyValue('--drive-rx')).toBe(String(GAZE_DRIVE_RADIUS.x * GAZE_PULL_SCALE))
 
     rerender(<Maze gazePoint={null} />)
     expect(screen.queryByTestId('drive-area')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pull-area')).not.toBeInTheDocument()
   })
 })

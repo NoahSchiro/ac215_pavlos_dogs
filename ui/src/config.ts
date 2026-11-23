@@ -87,12 +87,29 @@ export const GAZE_PREDICTION_INTERVAL_MS = 200
 /**
  * Where gaze can steer Pavlos: an ellipse centred on him, with these
  * half-widths as fractions of the screen height (so a circle on screen when
- * x === y). Gaze outside it counts as looking around and never moves him; gaze
- * inside his own cell keeps him still. Taller than wide because vertical gaze
- * predictions are less accurate. One maze cell is about 0.1 of the height, so
- * this reaches about 2.5 cells sideways and 3 cells up or down.
+ * x === y). Gaze here snaps to the nearest cell he can reach and drives him
+ * there; outside it, only a held stare in the pull ring moves him. Taller than
+ * wide because vertical gaze predictions are less accurate. One maze cell is
+ * about 0.1 of the height, so this reaches about 2.5 cells sideways and 3
+ * cells up or down.
  */
 export const GAZE_DRIVE_RADIUS = { x: 0.25, y: 0.3 }
+
+/**
+ * The pull ring: out to this multiple of GAZE_DRIVE_RADIUS, a held stare
+ * (GAZE_DWELL_MS within GAZE_DWELL_RADIUS) pulls Pavlos toward it. Gaze error
+ * often lands a look at a nearby cell just outside the drive ellipse.
+ */
+export const GAZE_PULL_SCALE = 1.5
+
+/** How long gaze must hold still to count as a stare. */
+export const GAZE_DWELL_MS = 600
+
+/** Gaze within this distance of the stare's mean (fraction of the screen height) counts as holding still. */
+export const GAZE_DWELL_RADIUS = 0.08
+
+/** Keep the current target cell unless another reachable cell is this many cells closer to the gaze. */
+export const GAZE_TARGET_HOLD_CELLS = 0.25
 
 /** Outline the drive area around Pavlos while gaze is steering him. */
 export const SHOW_DRIVE_AREA = true
