@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { generateMaze } from './mazeGenerator'
 import type { Maze as MazeGrid, MazePosition } from './mazeGenerator'
-import { decideDrive } from './driveAssist'
+import { decideDrive, type ScreenRect } from './driveAssist'
 import { isDwelling, trackFixation, type Fixation } from './dwell'
+import {
+  holdsPavlos,
+  isRecentering,
+  sampleRecenter,
+  startRecenter,
+  type GazeShift,
+  type RecenterState,
+} from './recenter'
 import type { Direction } from './gazeDirection'
 import type { ScreenFraction } from '../vision/model'
-import { currentViewport } from '../vision/viewport'
+import { currentViewport, type Viewport } from '../vision/viewport'
 import {
   GAZE_DRIVE_RADIUS,
   GAZE_DWELL_MS,
@@ -17,6 +25,8 @@ import {
   MAZE_COLS,
   MAZE_ROWS,
   PLAYER_SIZE_PERCENT,
+  RECENTER,
+  RECENTER_RESULT_MS,
   SHOW_DRIVE_AREA,
 } from '../config'
 import './Maze.css'
@@ -115,9 +125,19 @@ function randomPositions(): {
 interface MazeProps {
   /** Latest smoothed gaze, as viewport fractions; null while gaze is unavailable. */
   gazePoint?: ScreenFraction | null
+  /** A recenter finished: add `shift` to future gaze points. */
+  onRecenter?: (shift: GazeShift) => void
 }
 
-export default function Maze({ gazePoint = null }: MazeProps) {
+// Pavlos's centre on screen, as viewport fractions.
+function pavlosCentre(rect: ScreenRect, player: MazePosition, viewport: Viewport): ScreenFraction {
+  return {
+    x: (rect.left + ((player.col + 0.5) * rect.width) / COLS) / viewport.width,
+    y: (rect.top + ((player.row + 0.5) * rect.height) / ROWS) / viewport.height,
+  }
+}
+
+export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
   const mazeRef = useRef<HTMLDivElement>(null)
 
   // Generate the maze and starting positions together.
@@ -204,12 +224,59 @@ export default function Maze({ gazePoint = null }: MazeProps) {
   // the next prediction.
   const gazeRef = useRef(gazePoint)
   const fixationRef = useRef<Fixation | null>(null)
+  const gameRef = useRef(game)
+  useEffect(() => {
+    gameRef.current = game
+  }, [game])
+
+  // Dynamic recentering: a stare at Pavlos measures and removes a constant
+  // gaze offset. He holds still while it runs.
+  const [recenter, setRecenter] = useState<RecenterState>({ phase: 'idle' })
+  const holdRef = useRef(false)
+  useEffect(() => {
+    holdRef.current = holdsPavlos(recenter)
+  }, [recenter])
+
   useEffect(() => {
     gazeRef.current = gazePoint
-    fixationRef.current = trackFixation(
-      fixationRef.current, gazePoint, Date.now(), currentViewport(), GAZE_DWELL_RADIUS,
-    )
+    const now = Date.now()
+    const viewport = currentViewport()
+    fixationRef.current = trackFixation(fixationRef.current, gazePoint, now, viewport, GAZE_DWELL_RADIUS)
+
+    if (gazePoint === null) {
+      setRecenter((state) => (isRecentering(state) ? { phase: 'idle' } : state))
+      return
+    }
+    const rect = mazeRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const target = pavlosCentre(rect, gameRef.current.player, viewport)
+    setRecenter((state) => sampleRecenter(state, { point: gazePoint, now, target, viewport }, RECENTER))
   }, [gazePoint])
+
+  // Hand a finished shift to the gaze pipeline (once per result), show the
+  // result briefly, then resume.
+  const onRecenterRef = useRef(onRecenter)
+  useEffect(() => {
+    onRecenterRef.current = onRecenter
+  }, [onRecenter])
+  useEffect(() => {
+    if (recenter.phase === 'done') onRecenterRef.current?.(recenter.shift)
+    if (recenter.phase !== 'done' && recenter.phase !== 'gaveUp') return
+    const timer = setTimeout(() => setRecenter({ phase: 'idle' }), RECENTER_RESULT_MS)
+    return () => clearTimeout(timer)
+  }, [recenter])
+
+  // R starts recentering (or cancels it). Stuck detection will start it hands-free.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'r' && event.key !== 'R') return
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
+      if (gazeRef.current === null) return
+      setRecenter((state) => (isRecentering(state) ? { phase: 'idle' } : startRecenter(Date.now())))
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const hasGaze = gazePoint !== null
   useEffect(() => {
@@ -218,6 +285,7 @@ export default function Maze({ gazePoint = null }: MazeProps) {
     let heldTarget: MazePosition | null = null
 
     function tick() {
+      if (holdRef.current) return
       const rect = mazeRef.current?.getBoundingClientRect()
       if (!rect) return
       const viewport = currentViewport()
@@ -277,6 +345,7 @@ export default function Maze({ gazePoint = null }: MazeProps) {
         className="maze"
         role="group"
         aria-label="Maze"
+        data-recenter={recenter.phase}
         style={{
           gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))`,

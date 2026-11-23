@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import Maze from './Maze'
 import { generateMaze } from './mazeGenerator'
-import { GAZE_DRIVE_RADIUS, GAZE_DWELL_MS, GAZE_PULL_SCALE, MAZE_COLS, MAZE_ROWS } from '../config'
+import { GAZE_DRIVE_RADIUS, GAZE_DWELL_MS, GAZE_PULL_SCALE, MAZE_COLS, MAZE_ROWS, RECENTER_RESULT_MS } from '../config'
 
 // Mock the maze generator to create a predictable maze for testing.
 vi.mock('./mazeGenerator', () => ({
@@ -335,4 +335,74 @@ describe('Maze gaze steering', () => {
     expect(screen.queryByTestId('drive-area')).not.toBeInTheDocument()
     expect(screen.queryByTestId('pull-area')).not.toBeInTheDocument()
   })
+
+  describe('recentering', () => {
+    const recenterPhase = () => screen.getByRole('group', { name: 'Maze' }).dataset.recenter
+
+    /** Keep predicting `point` (a fresh object each time, like the gaze loop) for `ms`. */
+    function stare(rerender: (ui: React.ReactElement) => void, point: { x: number; y: number }, ms: number, onRecenter = vi.fn()) {
+      for (let t = 0; t < ms; t += 200) {
+        rerender(<Maze gazePoint={{ ...point }} onRecenter={onRecenter} />)
+        act(() => { vi.advanceTimersByTime(200) })
+      }
+    }
+
+    it('R starts a hands-free recenter: Pavlos holds still, and the stare gives the shift', () => {
+      const onRecenter = vi.fn()
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      rerender(<Maze gazePoint={gazeAtCell(start.row, start.col)} onRecenter={onRecenter} />)
+      pressKey('r')
+      expect(recenterPhase()).toBe('confirming')
+
+      // The user stares at Pavlos, but gaze reads one cell inward: normally that drives him.
+      const reads = inwardTarget(start, 1)
+      // Samples arrive every 200 ms: the ninth, 1.6 s into the stare, confirms it.
+      stare(rerender, gazeAtCell(reads.row, reads.col), 1800, onRecenter)
+      expect(recenterPhase()).toBe('capturing')
+      stare(rerender, gazeAtCell(reads.row, reads.col), 1000, onRecenter)
+      expect(getPlayerPosition()).toEqual(start)
+
+      expect(onRecenter).toHaveBeenCalledOnce()
+      const [shift] = onRecenter.mock.calls[0]
+      const pavlos = gazeAtCell(start.row, start.col)
+      const seen = gazeAtCell(reads.row, reads.col)
+      expect(shift.x).toBeCloseTo(pavlos.x - seen.x, 12)
+      expect(shift.y).toBeCloseTo(0, 12)
+
+      // He keeps still while the result shows, then play resumes.
+      expect(recenterPhase()).toBe('done')
+      act(() => { vi.advanceTimersByTime(RECENTER_RESULT_MS - 100) })
+      expect(getPlayerPosition()).toEqual(start)
+      act(() => { vi.advanceTimersByTime(100) })
+      expect(recenterPhase()).toBe('idle')
+    })
+
+    it('R again cancels, and losing gaze cancels', () => {
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      rerender(<Maze gazePoint={gazeAtCell(start.row, start.col)} />)
+      pressKey('r')
+      pressKey('r')
+      expect(recenterPhase()).toBe('idle')
+
+      pressKey('r')
+      rerender(<Maze gazePoint={null} />)
+      expect(recenterPhase()).toBe('idle')
+    })
+
+    it('needs gaze to start', () => {
+      render(<Maze />)
+      pressKey('r')
+      expect(recenterPhase()).toBe('idle')
+    })
+  })
 })
+
+// Press and release any key.
+function pressKey(key: string) {
+  act(() => {
+    fireEvent.keyDown(window, { key })
+    fireEvent.keyUp(window, { key })
+  })
+}

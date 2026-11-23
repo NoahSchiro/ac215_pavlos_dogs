@@ -111,6 +111,25 @@ export const GAZE_DWELL_RADIUS = 0.08
 /** Keep the current target cell unless another reachable cell is this many cells closer to the gaze. */
 export const GAZE_TARGET_HOLD_CELLS = 0.25
 
+/**
+ * Dynamic recentering: stare at Pavlos to fix a constant gaze offset. A steady
+ * stare near him for RECENTER.confirmMs starts capture; the median of the next
+ * captureSamples predictions (one per GAZE_PREDICTION_INTERVAL_MS, so about
+ * 1 s) is compared with his centre, and that shift is added to later gaze.
+ * Stares further than maxShift (fraction of the screen height) from him are
+ * taken as looking elsewhere. Pavlos holds still meanwhile.
+ */
+export const RECENTER = {
+  confirmMs: 1500,
+  captureSamples: 5,
+  holdRadius: 0.08,
+  maxShift: 0.25,
+  timeoutMs: 10_000,
+}
+
+/** How long Pavlos shows the recenter result before play resumes. */
+export const RECENTER_RESULT_MS = 1000
+
 /** Outline the drive area around Pavlos while gaze is steering him. */
 export const SHOW_DRIVE_AREA = true
 

@@ -11,7 +11,14 @@ import { GAZE_PREDICTION_INTERVAL_MS, GAZE_SMOOTHING } from '../config'
 vi.mock('../calibration/useCamera', () => ({ useCamera: vi.fn() }))
 vi.mock('../vision/utils', () => ({ getLandmarker: vi.fn() }))
 vi.mock('../vision/model', () => ({ loadGazeModel: vi.fn(), predictGaze: vi.fn() }))
-vi.mock('./Maze', () => ({ default: ({ gazePoint }: { gazePoint?: { x: number } | null }) => <div data-testid="maze-gaze">{gazePoint ? gazePoint.x.toFixed(2) : 'none'}</div> }))
+vi.mock('./Maze', () => ({
+  default: ({ gazePoint, onRecenter }: { gazePoint?: { x: number } | null; onRecenter?: (shift: { x: number; y: number }) => void }) => (
+    <>
+      <div data-testid="maze-gaze">{gazePoint ? gazePoint.x.toFixed(2) : 'none'}</div>
+      <button type="button" onClick={() => onRecenter?.({ x: 0.1, y: 0 })}>Fake recenter</button>
+    </>
+  ),
+}))
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -168,6 +175,20 @@ test('restarts smoothing when the active calibration changes', async () => {
   await act(async () => rerender(<MazeScreen onBack={vi.fn()} calibration={null} />))
   expect(screen.getByTestId('gaze-crosshair')).toHaveStyle({ left: '20%' })
   expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.20')
+})
+
+test('adds a recenter shift to later predictions, and drops it with a new calibration', async () => {
+  const { rerender } = await act(async () => render(<MazeScreen onBack={vi.fn()} calibration={null} />))
+  await startGame()
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.20')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Fake recenter' }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(GAZE_PREDICTION_INTERVAL_MS) })
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.30')
+  expect(parseFloat(screen.getByTestId('gaze-crosshair').style.left)).toBeCloseTo(30, 9)
+
+  await act(async () => rerender(<MazeScreen onBack={vi.fn()} calibration={testSession()} />))
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.80')
 })
 
 test.each(['leave', 'resize'] as const)('ignores an in-flight prediction after %s', async (action) => {

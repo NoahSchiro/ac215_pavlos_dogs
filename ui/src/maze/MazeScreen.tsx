@@ -6,6 +6,7 @@ import { GazeCrosshair } from '../gaze/GazeCrosshair'
 import type { CalibrationSession } from '../calibration/record'
 import { predictMazeFrame } from './predictFrame'
 import Maze from './Maze'
+import { addShift, applyShift, NO_SHIFT, type GazeShift } from './recenter'
 import { GazeKalmanFilter } from '../gaze/kalman'
 import { enterFullscreen } from '../calibration/fullscreen'
 import { currentViewport, sameViewport } from '../vision/viewport'
@@ -35,6 +36,8 @@ export function MazeScreen({ onBack, calibration }: Props) {
   const [starting, setStarting] = useState(false)
   const [gazeStatus, setGazeStatus] = useState('Starting camera...')
   const [gazePoint, setGazePoint] = useState<ScreenFraction | null>(null)
+  // Offset from dynamic recentering, added to every prediction.
+  const gazeShift = useRef<GazeShift>(NO_SHIFT)
   const [layout, setLayout] = useState(currentLayout)
 
   const initialLayout = useRef<ReturnType<typeof currentLayout> | null>(null)
@@ -152,6 +155,8 @@ export function MazeScreen({ onBack, calibration }: Props) {
         if (signal.aborted) return
 
         const kf = new GazeKalmanFilter(GAZE_SMOOTHING)
+        // A new calibration or camera session starts without a recenter offset.
+        gazeShift.current = NO_SHIFT
         setGazeStatus('Tracking gaze')
 
         async function predict() {
@@ -171,7 +176,7 @@ export function MazeScreen({ onBack, calibration }: Props) {
           if (signal.aborted) return
 
           if (result) {
-            setGazePoint(result.point)
+            setGazePoint(applyShift(result.point, gazeShift.current))
 
             if (result.status !== undefined) {
               setGazeStatus(result.status)
@@ -283,7 +288,12 @@ export function MazeScreen({ onBack, calibration }: Props) {
           </button>
         </div>
 
-        <Maze gazePoint={gazePoint} />
+        <Maze
+          gazePoint={gazePoint}
+          onRecenter={(shift) => {
+            gazeShift.current = addShift(gazeShift.current, shift)
+          }}
+        />
       </div>
     </main>
   )
