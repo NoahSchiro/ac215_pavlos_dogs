@@ -55,12 +55,22 @@ export function loadRuntimeConfig(): Promise<RuntimeConfig> {
 
 /** Game settings */
 
-/** Maze size, in cells. */
-export const MAZE_ROWS = 15
-export const MAZE_COLS = 15
+/**
+ * Maze size, in cells. Cells are square and big because gaze is imprecise:
+ * Pavlos only holds still while gaze stays inside his own cell. Wider than
+ * tall because horizontal gaze is more accurate than vertical.
+ */
+export const MAZE_ROWS = 9
+export const MAZE_COLS = 13
 
-/** Maximum on-screen maze size, accounting for viewport height. */
-export const MAZE_DISPLAY_SIZE = 'min(94vw, calc(100dvh - 100px))'
+/** Maximum on-screen maze width: the full height left after the status line, unless the window is too narrow. */
+export const MAZE_DISPLAY_SIZE = `min(94vw, calc((100dvh - 100px) * ${MAZE_COLS} / ${MAZE_ROWS}))`
+
+/** One maze cell as a fraction of the viewport height. Keep in step with MAZE_DISPLAY_SIZE. */
+export function mazeCellFraction(viewport: { width: number; height: number }): number {
+  const mazeHeightPx = Math.min((0.94 * viewport.width * MAZE_ROWS) / MAZE_COLS, viewport.height - 100)
+  return Math.max(0, mazeHeightPx) / MAZE_ROWS / viewport.height
+}
 
 /** Pavlos's size, as a percentage of one maze cell. */
 export const PLAYER_SIZE_PERCENT = 75
@@ -75,6 +85,98 @@ export const GAZE_MOVE_INTERVAL_MS = 160
 export const GAZE_PREDICTION_INTERVAL_MS = 200
 
 /**
+ * Where gaze can steer Pavlos: an ellipse centred on him, with these
+ * half-widths as fractions of the screen height (so a circle on screen when
+ * x === y). Gaze here snaps to the nearest cell he can reach and drives him
+ * there; outside it, only a held stare in the pull ring moves him. Taller than
+ * wide because vertical gaze predictions are less accurate. One maze cell is
+ * about 0.1 of the height, so this reaches about 2.5 cells sideways and 3
+ * cells up or down.
+ */
+export const GAZE_DRIVE_RADIUS = { x: 0.25, y: 0.3 }
+
+/**
+ * The pull ring: out to this multiple of GAZE_DRIVE_RADIUS, a held stare
+ * (GAZE_DWELL_MS within GAZE_DWELL_RADIUS) pulls Pavlos toward it. Gaze error
+ * often lands a look at a nearby cell just outside the drive ellipse.
+ */
+export const GAZE_PULL_SCALE = 1.5
+
+/** How long gaze must hold still to count as a stare. */
+export const GAZE_DWELL_MS = 600
+
+/** Gaze within this distance of the stare's mean (fraction of the screen height) counts as holding still. */
+export const GAZE_DWELL_RADIUS = 0.08
+
+/** Keep the current target cell unless another reachable cell is this many cells closer to the gaze. */
+export const GAZE_TARGET_HOLD_CELLS = 0.25
+
+/**
+ * Dynamic recentering: stare at Pavlos to correct the gaze offset near him.
+ * It is started from the Recenter strip (RECENTER_STRIP). A steady stare
+ * within stareRadius of him (fraction of the screen height) for confirmMs
+ * starts capture; the median of the next captureSamples predictions (one per
+ * GAZE_PREDICTION_INTERVAL_MS, so about 1 s) is compared with his centre.
+ * Pavlos holds still meanwhile.
+ *
+ * Each result is kept as an anchor at his position. Its shift applies in full
+ * there and fades with distance: weight = floor + (1 - floor) * exp(-d² / 2σ²),
+ * d in screen heights. The floor keeps part of it everywhere, for drift that
+ * moves all of the gaze (e.g. leaning). A recenter within mergeRadius of an
+ * older one replaces it; at most maxAnchors are kept. The total correction at
+ * any point is capped at maxShift (fraction of the screen height).
+ */
+export const RECENTER = {
+  confirmMs: 1000,
+  captureSamples: 5,
+  holdRadius: 0.08,
+  stareRadius: 0.25,
+  maxShift: 0.15,
+  falloff: { sigma: 0.3, floor: 0.25, mergeRadius: 0.15, maxAnchors: 4 },
+  timeoutMs: 10_000,
+}
+
+/**
+ * Gameplay gaze may land up to this far outside the screen (viewport
+ * fraction per side) after recentering, so that gaze error near an edge is
+ * not piled up on the edge and Pavlos can still be steered along it.
+ */
+export const GAZE_PADDING = 0.15
+
+/** How long Pavlos shows the recenter result before play resumes. */
+export const RECENTER_RESULT_MS = 1000
+
+/**
+ * The Recenter strip beside the maze, started by looking at it for dwellMs.
+ * Its hit zone runs from the strip's column past the right screen edge, and
+ * `pad` (fraction of the screen height) above and below the strip, so only
+ * horizontal gaze accuracy matters. Up to maxMisses stray samples in a row
+ * are forgiven.
+ */
+export const RECENTER_STRIP = { dwellMs: 1600, pad: 0.04, maxMisses: 1 }
+
+/**
+ * Stuck detection: prompt "Stuck? Look at Recenter" (it never recenters by
+ * itself) when Pavlos stays in one cell for stillMs while gaze is near him
+ * (inside the pull ring) but not on him, or when he rocks back and forth:
+ * rockMoves or more moves within windowMs over at most rockCells cells. The
+ * prompt shows for promptMs; after it, or after recentering, none comes for
+ * cooldownMs.
+ */
+export const STUCK = {
+  stillMs: 4000,
+  windowMs: 4000,
+  rockMoves: 4,
+  rockCells: 2,
+  promptMs: 6000,
+  cooldownMs: 15_000,
+}
+
+/** Outline the drive area around Pavlos while gaze is steering him. */
+export const SHOW_DRIVE_AREA = true
+
+/**
+ * Legacy screen-centre steering, still used by the race mode branch.
  * The "stop" zone in the middle of the screen, as screen fractions.
  * Looking between these values (on both axes) keeps Pavlos still.
  */
@@ -83,11 +185,15 @@ export const GAZE_CENTER_MAX = 0.6
 
 /**
  * Kalman smoothing of gaze predictions. Higher measurementStd or lower
- * accelerationStd gives smoother but slower-reacting gaze.
+ * accelerationStd gives smoother but slower-reacting gaze. Estimates (and
+ * calibrated predictions) are clamped to [-margin, 1 + margin].
  */
 export const GAZE_SMOOTHING = {
   measurementStd: 0.05,
   accelerationStd: 0.5,
+  // Before recentering: wide enough that a correction can still bring any
+  // point to the edge of GAZE_PADDING.
+  margin: GAZE_PADDING + RECENTER.maxShift,
 }
 
 /** How long the gaze crosshair takes to glide to each new position, in milliseconds. */

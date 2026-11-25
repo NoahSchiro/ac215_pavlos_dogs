@@ -4,6 +4,7 @@ import { exitFullscreen } from './fullscreen'
 import type { CalibrationResult } from './points'
 import type { CalibrationSession } from './record'
 import { validateCalibrationCapture, type ValidationSummary } from './validation'
+import { ErrorReport } from './ErrorReport'
 
 type State = { status: 'capture' } | { status: 'processing'; completed: number }
   | { status: 'done'; summary: ValidationSummary } | { status: 'error'; message: string }
@@ -52,6 +53,7 @@ export function AccuracyCheck({ session, onBack }: { session: CalibrationSession
           <p>{state.summary.validFrameCount} of 12 frames used. Lower error is better.</p>
           <p>{state.summary.correctedMeanError < state.summary.rawMeanError
             ? 'Calibration improved this check.' : 'Calibration did not improve this check. Try recalibrating.'}</p>
+          <ErrorReport summary={state.summary} />
         </>}
         <p>Mean error in normalized screen coordinates, without clipping. This check does not change your calibration.</p>
         <div className="calibration-storage-actions">

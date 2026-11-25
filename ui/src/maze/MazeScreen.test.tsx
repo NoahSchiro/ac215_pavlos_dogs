@@ -11,7 +11,14 @@ import { GAZE_PREDICTION_INTERVAL_MS, GAZE_SMOOTHING } from '../config'
 vi.mock('../calibration/useCamera', () => ({ useCamera: vi.fn() }))
 vi.mock('../vision/utils', () => ({ getLandmarker: vi.fn() }))
 vi.mock('../vision/model', () => ({ loadGazeModel: vi.fn(), predictGaze: vi.fn() }))
-vi.mock('./Maze', () => ({ default: ({ gazeDirection }: { gazeDirection?: string | null }) => <div data-testid="direction">{gazeDirection ?? 'stopped'}</div> }))
+vi.mock('./Maze', () => ({
+  default: ({ gazePoint, onRecenter }: { gazePoint?: { x: number } | null; onRecenter?: (result: { at: { x: number; y: number }; shift: { x: number; y: number } }) => void }) => (
+    <>
+      <div data-testid="maze-gaze">{gazePoint ? gazePoint.x.toFixed(2) : 'none'}</div>
+      <button type="button" onClick={() => onRecenter?.({ at: { x: 0.2, y: 0.5 }, shift: { x: 0.1, y: 0 } })}>Fake recenter</button>
+    </>
+  ),
+}))
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -71,7 +78,7 @@ test.each([true, false])('waits for camera permission, then starts after the ful
   expect(predictGaze).not.toHaveBeenCalled()
   await act(async () => finish())
   expect(screen.getByTestId('gaze-crosshair')).toHaveStyle({ left: calibrated ? '80%' : '20%' })
-  expect(screen.getByTestId('direction')).toHaveTextContent(calibrated ? 'right' : 'left')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent(calibrated ? '0.80' : '0.20')
   expect(screen.queryByRole('button', { name: 'Restore full screen' })).not.toBeInTheDocument()
 })
 
@@ -80,12 +87,12 @@ test('pauses immediately on resize and resumes when the calibration viewport is 
   await startGame()
   vi.stubGlobal('innerWidth', 1200)
   fireEvent(window, new Event('resize'))
-  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('none')
   expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()
   expect(screen.getByRole('status')).toHaveTextContent(/window|viewport/i)
   vi.stubGlobal('innerWidth', 800)
   await act(async () => { fireEvent(window, new Event('resize')) })
-  expect(screen.getByTestId('direction')).toHaveTextContent('right')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.80')
 })
 
 test('does not use a saved fit when the starting viewport differs', async () => {
@@ -93,7 +100,7 @@ test('does not use a saved fit when the starting viewport differs', async () => 
   await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
   await startGame()
   expect(predictGaze).not.toHaveBeenCalled()
-  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('none')
   expect(screen.getByRole('button', { name: 'Restore full screen' })).toBeInTheDocument()
 })
 
@@ -112,17 +119,17 @@ test('recovers from a failed fullscreen entry, then pauses on exit even at the s
   await startGame()
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Restore full screen' })))
   expect(request).toHaveBeenCalledTimes(2)
-  expect(screen.getByTestId('direction')).toHaveTextContent('right')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.80')
   full = false
   fireEvent(document, new Event('fullscreenchange'))
-  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('none')
   expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()
 })
 
 test('feeds a matching personal correction to maze movement', async () => {
   await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
   await startGame()
-  expect(screen.getByTestId('direction')).toHaveTextContent('right')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.80')
   expect(screen.getByTestId('gaze-crosshair')).toHaveStyle({ left: '80%', top: '50%' })
   expect(predictGaze).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), {
     focalLengthPx: 640, principalPoint: { x: 320, y: 240 },
@@ -132,13 +139,13 @@ test('feeds a matching personal correction to maze movement', async () => {
 test.each(['face_not_detected', 'pose_failed', 'throw', 'non-finite', 'not-ready'] as const)('stops movement and hides the marker on an unusable frame: %s', async (reason) => {
   await act(async () => { render(<MazeScreen onBack={vi.fn()} calibration={testSession()} />) })
   await startGame()
-  expect(screen.getByTestId('direction')).toHaveTextContent('right')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.80')
   if (reason === 'throw') vi.mocked(predictGaze).mockRejectedValueOnce(new Error('Inference failed'))
   else if (reason === 'non-finite') vi.mocked(predictGaze).mockResolvedValueOnce({ x: NaN, y: 0.5 })
   else if (reason === 'not-ready') vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(0)
   else vi.mocked(predictGaze).mockResolvedValueOnce(reason)
   await act(async () => { await vi.advanceTimersByTimeAsync(GAZE_PREDICTION_INTERVAL_MS) })
-  expect(screen.getByTestId('direction')).toHaveTextContent('stopped')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('none')
   expect(screen.queryByTestId('gaze-crosshair')).not.toBeInTheDocument()
 })
 
@@ -157,8 +164,8 @@ test.each([true, false])('uses the same Kalman output for crosshair and movement
   const marker = screen.getByTestId('gaze-crosshair')
   expect(parseFloat(marker.style.left) / 100).toBeCloseTo(expected.x, 12)
   expect(parseFloat(marker.style.top) / 100).toBeCloseTo(expected.y, 12)
-  // A corrected boundary measurement still moves right while the filter settles.
-  expect(screen.getByTestId('direction')).toHaveTextContent(calibrated ? 'right' : 'left')
+  // Maze steers from the same smoothed point the crosshair shows.
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent(expected.x.toFixed(2))
 })
 
 test('restarts smoothing when the active calibration changes', async () => {
@@ -167,7 +174,21 @@ test('restarts smoothing when the active calibration changes', async () => {
   expect(screen.getByTestId('gaze-crosshair')).toHaveStyle({ left: '80%' })
   await act(async () => rerender(<MazeScreen onBack={vi.fn()} calibration={null} />))
   expect(screen.getByTestId('gaze-crosshair')).toHaveStyle({ left: '20%' })
-  expect(screen.getByTestId('direction')).toHaveTextContent('left')
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.20')
+})
+
+test('adds a recenter shift to later predictions, and drops it with a new calibration', async () => {
+  const { rerender } = await act(async () => render(<MazeScreen onBack={vi.fn()} calibration={null} />))
+  await startGame()
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.20')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Fake recenter' }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(GAZE_PREDICTION_INTERVAL_MS) })
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.30')
+  expect(parseFloat(screen.getByTestId('gaze-crosshair').style.left)).toBeCloseTo(30, 9)
+
+  await act(async () => rerender(<MazeScreen onBack={vi.fn()} calibration={testSession()} />))
+  expect(screen.getByTestId('maze-gaze')).toHaveTextContent('0.80')
 })
 
 test.each(['leave', 'resize'] as const)('ignores an in-flight prediction after %s', async (action) => {

@@ -23,12 +23,15 @@ export function prepareGameplayGaze(
   session: CalibrationSession | null | undefined,
   camera: CaptureCamera | null,
   image: { cols: number; rows: number },
+  /** Corrected points are clamped to [-margin, 1 + margin]. */
+  margin = 0,
 ): { point: ScreenFraction; calibrated: boolean } | null {
   if (!Number.isFinite(raw.x) || !Number.isFinite(raw.y)) return null
   if (!calibrationMatchesFrame(session, camera, image)) return { point: raw, calibrated: false }
   try {
     const point = applyCalibration(raw, session!.record.calibration.fit)
     if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null
-    return { calibrated: true, point: { x: Math.max(0, Math.min(1, point.x)), y: Math.max(0, Math.min(1, point.y)) } }
+    const clamp = (v: number) => Math.max(0 - margin, Math.min(1 + margin, v))
+    return { calibrated: true, point: { x: clamp(point.x), y: clamp(point.y) } }
   } catch { return null }
 }

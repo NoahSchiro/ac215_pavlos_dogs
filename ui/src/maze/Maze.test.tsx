@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import Maze from './Maze'
 import { generateMaze } from './mazeGenerator'
+import { GAZE_DRIVE_RADIUS, GAZE_DWELL_MS, GAZE_PULL_SCALE, MAZE_COLS, MAZE_ROWS, RECENTER, RECENTER_RESULT_MS, RECENTER_STRIP, STUCK } from '../config'
 
 // Mock the maze generator to create a predictable maze for testing.
 vi.mock('./mazeGenerator', () => ({
@@ -10,8 +11,8 @@ vi.mock('./mazeGenerator', () => ({
 
 const mockedGenerateMaze = vi.mocked(generateMaze)
 
-const ROWS = 15
-const COLS = 15
+const ROWS = MAZE_ROWS
+const COLS = MAZE_COLS
 
 // Create a maze with no internal walls, but closed outer boundaries.
 function createTestMaze() {
@@ -99,7 +100,7 @@ describe('Maze', () => {
       screen.getByRole('img', { name: 'Cheese goal' }),
     ).toBeInTheDocument()
 
-    expect(document.querySelectorAll('.maze-cell')).toHaveLength(225)
+    expect(document.querySelectorAll('.maze-cell')).toHaveLength(ROWS * COLS)
   })
 
   it('moves Pavlos using arrow keys', () => {
@@ -218,3 +219,274 @@ describe('Maze', () => {
     expect(playerImage).toHaveAttribute('src', '/pavlos_smile.png')
   })
 })
+
+describe('Maze gaze steering', () => {
+  // A 900 px tall viewport with 60 px cells: the drive ellipse reaches
+  // 0.25 * 900 = 225 px (3.75 cells) sideways, the pull ring 1.5x that.
+  const CELL = 60
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal('innerWidth', 900)
+    vi.stubGlobal('innerHeight', 900)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('maze-recenter-column')) return box(COLS * CELL + 16, 0, 100, ROWS * CELL)
+      if (this.classList.contains('maze-recenter')) return box(COLS * CELL + 26, ROWS * CELL * 0.2, 80, ROWS * CELL * 0.6)
+      return box(0, 0, COLS * CELL, ROWS * CELL)
+    })
+    mockedGenerateMaze.mockImplementation(createTestMaze)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  function box(left: number, top: number, width: number, height: number) {
+    return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }
+  }
+
+  // Gaze at the centre of a cell, as viewport fractions.
+  const gazeAtCell = (row: number, col: number) => ({ x: ((col + 0.5) * CELL) / 900, y: ((row + 0.5) * CELL) / 900 })
+
+  // Two cells from the start, toward the middle of the maze.
+  function inwardTarget(start: { row: number; col: number }, cells: number) {
+    return { row: start.row, col: start.col === 0 ? start.col + cells : start.col - cells }
+  }
+
+  it('drives Pavlos to the cell he is looking at, one step per tick, then stops there', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const target = inwardTarget(start, 2)
+
+    rerender(<Maze gazePoint={gazeAtCell(target.row, target.col)} />)
+    expect(getPlayerPosition()).toEqual(inwardTarget(start, 1)) // first step is immediate
+
+    act(() => { vi.advanceTimersByTime(160) })
+    expect(getPlayerPosition()).toEqual(target)
+
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(getPlayerPosition()).toEqual(target)
+  })
+
+  it('ignores a glance just outside the drive ellipse, but a held stare pulls Pavlos there', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const near = inwardTarget(start, 5) // 300 px: past the ellipse (225 px), inside the pull ring (337 px)
+
+    rerender(<Maze gazePoint={gazeAtCell(near.row, near.col)} />)
+    act(() => { vi.advanceTimersByTime(GAZE_DWELL_MS - 100) })
+    expect(getPlayerPosition()).toEqual(start)
+
+    act(() => { vi.advanceTimersByTime(2000) })
+    expect(getPlayerPosition()).toEqual(near)
+  })
+
+  it('ignores even a held stare beyond the pull ring (looking around)', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const far = inwardTarget(start, 8)
+
+    rerender(<Maze gazePoint={gazeAtCell(far.row, far.col)} />)
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(getPlayerPosition()).toEqual(start)
+  })
+
+  it('stops when gaze is lost', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const target = inwardTarget(start, 2)
+
+    rerender(<Maze gazePoint={gazeAtCell(target.row, target.col)} />)
+    rerender(<Maze gazePoint={null} />)
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(getPlayerPosition()).toEqual(inwardTarget(start, 1))
+  })
+
+  it('follows a moving gaze point from wherever Pavlos is now', () => {
+    const { rerender } = render(<Maze />)
+    const start = getPlayerPosition()
+    const one = inwardTarget(start, 1)
+    const three = inwardTarget(start, 3)
+
+    rerender(<Maze gazePoint={gazeAtCell(one.row, one.col)} />)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(getPlayerPosition()).toEqual(one)
+
+    // Three cells from the start is only two from Pavlos now: inside the ellipse.
+    rerender(<Maze gazePoint={gazeAtCell(three.row, three.col)} />)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(getPlayerPosition()).toEqual(three)
+  })
+
+  it('outlines the drive area around Pavlos only while gaze is steering', () => {
+    const { rerender } = render(<Maze />)
+    expect(screen.queryByTestId('drive-area')).not.toBeInTheDocument()
+
+    const start = getPlayerPosition()
+    const target = inwardTarget(start, 1)
+    rerender(<Maze gazePoint={gazeAtCell(target.row, target.col)} />)
+    const area = screen.getByTestId('drive-area')
+    const player = document.querySelector('.maze-player') as HTMLElement
+    expect(area.style.left).toBe(player.style.left)
+    expect(area.style.top).toBe(player.style.top)
+    expect(area.style.getPropertyValue('--drive-rx')).toBe(String(GAZE_DRIVE_RADIUS.x))
+    expect(area.style.getPropertyValue('--drive-ry')).toBe(String(GAZE_DRIVE_RADIUS.y))
+    const pull = screen.getByTestId('pull-area')
+    expect(pull.style.left).toBe(player.style.left)
+    expect(pull.style.getPropertyValue('--drive-rx')).toBe(String(GAZE_DRIVE_RADIUS.x * GAZE_PULL_SCALE))
+
+    rerender(<Maze gazePoint={null} />)
+    expect(screen.queryByTestId('drive-area')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pull-area')).not.toBeInTheDocument()
+  })
+
+  describe('recentering', () => {
+    const recenterPhase = () => screen.getByRole('group', { name: 'Maze' }).dataset.recenter
+
+    /** Keep predicting `point` (a fresh object each time, like the gaze loop) for `ms`. */
+    function stare(rerender: (ui: React.ReactElement) => void, point: { x: number; y: number }, ms: number, onRecenter = vi.fn()) {
+      for (let t = 0; t < ms; t += 200) {
+        rerender(<Maze gazePoint={{ ...point }} onRecenter={onRecenter} />)
+        act(() => { vi.advanceTimersByTime(200) })
+      }
+    }
+
+    it('R starts a hands-free recenter: Pavlos holds still, and the stare gives the shift', () => {
+      const onRecenter = vi.fn()
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      rerender(<Maze gazePoint={gazeAtCell(start.row, start.col)} onRecenter={onRecenter} />)
+      pressKey('r')
+      expect(recenterPhase()).toBe('confirming')
+
+      // The user stares at Pavlos, but gaze reads one cell inward: normally that drives him.
+      const reads = inwardTarget(start, 1)
+      // Samples arrive every 200 ms; the first one at least confirmMs into the stare confirms it.
+      stare(rerender, gazeAtCell(reads.row, reads.col), RECENTER.confirmMs + 200, onRecenter)
+      expect(recenterPhase()).toBe('capturing')
+      stare(rerender, gazeAtCell(reads.row, reads.col), RECENTER.captureSamples * 200, onRecenter)
+      expect(getPlayerPosition()).toEqual(start)
+
+      expect(onRecenter).toHaveBeenCalledOnce()
+      const [{ at, shift }] = onRecenter.mock.calls[0]
+      const pavlos = gazeAtCell(start.row, start.col)
+      const seen = gazeAtCell(reads.row, reads.col)
+      expect(at.x).toBeCloseTo(pavlos.x, 12)
+      expect(at.y).toBeCloseTo(pavlos.y, 12)
+      expect(shift.x).toBeCloseTo(pavlos.x - seen.x, 12)
+      expect(shift.y).toBeCloseTo(0, 12)
+
+      // He keeps still while the result shows, then play resumes.
+      expect(recenterPhase()).toBe('done')
+      act(() => { vi.advanceTimersByTime(RECENTER_RESULT_MS - 100) })
+      expect(getPlayerPosition()).toEqual(start)
+      act(() => { vi.advanceTimersByTime(100) })
+      expect(recenterPhase()).toBe('idle')
+    })
+
+    it('R again cancels, and losing gaze cancels', () => {
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      rerender(<Maze gazePoint={gazeAtCell(start.row, start.col)} />)
+      pressKey('r')
+      pressKey('r')
+      expect(recenterPhase()).toBe('idle')
+
+      pressKey('r')
+      rerender(<Maze gazePoint={null} />)
+      expect(recenterPhase()).toBe('idle')
+    })
+
+    // On the Recenter strip, beside the maze (x = 850 of 900 px), halfway down.
+    const ON_STRIP = { x: 850 / 900, y: (ROWS * CELL * 0.5) / 900 }
+
+    it('starts when the user looks at the Recenter strip long enough', () => {
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      rerender(<Maze gazePoint={gazeAtCell(start.row, start.col)} />)
+      const strip = screen.getByTestId('recenter-strip')
+      expect(strip).toHaveTextContent('Look here to recenter')
+
+      // A glance fills the strip partway, then looking away resets it.
+      stare(rerender, ON_STRIP, 800)
+      expect(parseFloat((strip.firstChild as HTMLElement).style.height)).toBeGreaterThan(0)
+      expect(recenterPhase()).toBe('idle')
+      stare(rerender, gazeAtCell(start.row, start.col), 600)
+      expect((strip.firstChild as HTMLElement).style.height).toBe('0%')
+
+      // Gaze past the screen edge still counts; the strip only has to be hit sideways.
+      stare(rerender, { x: 1.05, y: ON_STRIP.y }, RECENTER_STRIP.dwellMs + 200)
+      expect(recenterPhase()).toBe('confirming')
+      expect(strip).toHaveTextContent('Now stare at Pavlos')
+    })
+
+    it('also starts from a click', () => {
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      rerender(<Maze gazePoint={gazeAtCell(start.row, start.col)} />)
+      fireEvent.click(screen.getByTestId('recenter-strip'))
+      expect(recenterPhase()).toBe('confirming')
+    })
+
+    it('Pavlos asks for a stare, goes quiet while it is held, then says done', () => {
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      rerender(<Maze gazePoint={gazeAtCell(start.row, start.col)} />)
+      pressKey('r')
+      expect(screen.getByTestId('recenter-bubble')).toHaveTextContent('Stare at me')
+      expect(screen.getByTestId('recenter-ring')).toBeInTheDocument()
+
+      stare(rerender, gazeAtCell(start.row, start.col), 600)
+      expect(screen.queryByTestId('recenter-bubble')).not.toBeInTheDocument()
+      stare(rerender, gazeAtCell(start.row, start.col), 2000)
+      expect(recenterPhase()).toBe('done')
+      expect(screen.getByTestId('recenter-bubble')).toHaveTextContent('Done')
+      expect(screen.queryByTestId('recenter-ring')).not.toBeInTheDocument()
+    })
+
+    it('suggests recentering when Pavlos is stuck, but never starts it', () => {
+      const { rerender } = render(<Maze />)
+      const start = getPlayerPosition()
+      // Restless gaze just outside the drive ellipse: never a held stare, so he stays put.
+      const nearA = inwardTarget(start, 4)
+      const toward = start.col === 0 ? 1 : -1
+      const a = gazeAtCell(nearA.row, nearA.col)
+      const b = { x: a.x + (toward * 1.4 * CELL) / 900, y: a.y }
+      for (let t = 0; t < STUCK.stillMs + 400; t += 200) {
+        rerender(<Maze gazePoint={(t / 200) % 2 ? { ...b } : { ...a }} />)
+        act(() => { vi.advanceTimersByTime(200) })
+      }
+      expect(getPlayerPosition()).toEqual(start)
+      expect(screen.getByTestId('recenter-bubble')).toHaveTextContent('Stuck? Look at Recenter')
+      expect(screen.getByTestId('recenter-strip')).toHaveAttribute('data-prompt', 'true')
+      expect(recenterPhase()).toBe('idle')
+
+      // Starting recentering clears the prompt.
+      pressKey('r')
+      rerender(<Maze gazePoint={{ ...a }} />)
+      expect(screen.getByTestId('recenter-strip')).toHaveAttribute('data-prompt', 'false')
+      expect(screen.getByTestId('recenter-bubble')).toHaveTextContent('Stare at me')
+    })
+
+    it('hides the strip without gaze', () => {
+      render(<Maze />)
+      expect(screen.queryByTestId('recenter-strip')).not.toBeInTheDocument()
+    })
+
+    it('needs gaze to start', () => {
+      render(<Maze />)
+      pressKey('r')
+      expect(recenterPhase()).toBe('idle')
+    })
+  })
+})
+
+// Press and release any key.
+function pressKey(key: string) {
+  act(() => {
+    fireEvent.keyDown(window, { key })
+    fireEvent.keyUp(window, { key })
+  })
+}
