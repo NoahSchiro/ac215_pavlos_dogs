@@ -120,8 +120,20 @@ gcloud run deploy race-server \
 - **`--timeout 3600`**: Cloud Run closes requests (including WebSockets) after the timeout;
   an hour covers any race.
 
-Then rebuild the UI with `VITE_RACE_SERVER_URL` set to the printed service URL, and set
-`ALLOWED_ORIGINS` to the UI's URL.
+Then point the website at it. The UI reads the race server's address from `/config.json`,
+so this is a redeploy with one more setting, not a rebuild:
+
+```bash
+RACE_SERVER_URL=https://race-server-xxxx.us-east1.run.app \
+PROJECT=... MODEL_URL=... deploy/deploy-ui.sh
+```
+
+Finally, lock the race server to the website (CORS):
+
+```bash
+gcloud run services update race-server --region us-east1 \
+  --update-env-vars ALLOWED_ORIGINS=https://<your-ui>.run.app
+```
 
 ## Monitoring
 

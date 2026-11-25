@@ -4,12 +4,15 @@
 #   PROJECT=my-project MODEL_URL=https://storage.googleapis.com/... deploy/deploy-ui.sh
 #
 # MODEL_URL is what deploy/publish-model.sh (or the Vertex pipeline) printed.
+# RACE_SERVER_URL (optional) is the race-server Cloud Run URL for race mode;
+# leave it unset and race mode looks for a server on localhost:8000.
 # Every deploy is a new Cloud Run revision, so rolling back a bad model or
 # build is `gcloud run services update-traffic --to-revisions <rev>=100`.
 set -euo pipefail
 : "${PROJECT:?set PROJECT}"
 : "${MODEL_URL:?set MODEL_URL to a published model (deploy/publish-model.sh prints it)}"
 REGION="${REGION:-us-east1}"
+RACE_SERVER_URL="${RACE_SERVER_URL:-}"
 REPO="${REPO:-gaze}"
 SERVICE="${SERVICE:-gaze-maze}"
 ROOT="$(git rev-parse --show-toplevel)"
@@ -26,7 +29,7 @@ gcloud builds submit "$ROOT/ui" --project "$PROJECT" --tag "$IMAGE"
 gcloud run deploy "$SERVICE" \
   --project "$PROJECT" --region "$REGION" --image "$IMAGE" \
   --port 8080 \
-  --set-env-vars "MODEL_URL=$MODEL_URL,APP_VERSION=$VERSION,TELEMETRY=true" \
+  --set-env-vars "MODEL_URL=$MODEL_URL,APP_VERSION=$VERSION,TELEMETRY=true,RACE_SERVER_URL=$RACE_SERVER_URL" \
   --allow-unauthenticated \
   --cpu 1 --memory 256Mi --concurrency 80 \
   --min-instances 0 --max-instances 3

@@ -16,12 +16,22 @@ export interface RuntimeConfig {
   telemetry: boolean
   /** The deployed build, reported with telemetry. */
   appVersion: string
+  /** Address of the race backend (FastAPI + WebSockets) for race mode. */
+  raceServerUrl: string
 }
+
+/**
+ * Race backend used when /config.json does not name one: VITE_RACE_SERVER_URL
+ * if set at build time, otherwise a backend running locally on port 8000.
+ */
+const LOCAL_RACE_SERVER_URL: string =
+  (import.meta.env.VITE_RACE_SERVER_URL as string | undefined) ?? 'http://localhost:8000'
 
 export const DEFAULT_CONFIG: RuntimeConfig = {
   modelUrl: `${import.meta.env.BASE_URL}models/gazenet.onnx`,
   telemetry: false,
   appVersion: 'dev',
+  raceServerUrl: LOCAL_RACE_SERVER_URL,
 }
 
 /** Fill anything missing or malformed in a fetched config with the defaults. */
@@ -32,6 +42,8 @@ export function parseConfig(raw: unknown): RuntimeConfig {
     modelUrl: text(r.modelUrl, DEFAULT_CONFIG.modelUrl),
     telemetry: r.telemetry === true || r.telemetry === 'true',
     appVersion: text(r.appVersion, DEFAULT_CONFIG.appVersion),
+    // A trailing slash would turn `${url}/rooms` into `//rooms`.
+    raceServerUrl: text(r.raceServerUrl, DEFAULT_CONFIG.raceServerUrl).replace(/\/+$/, ''),
   }
 }
 
@@ -97,8 +109,8 @@ export const CROSSHAIR_GLIDE_MS = 450
 export const CROSSHAIR_OPACITY = 0.55
 
 /**
- * Address of the race backend (FastAPI). Set VITE_RACE_SERVER_URL when building
- * for production; defaults to a backend running locally on port 8000.
+ * Fallback address of the race backend, used until /config.json has loaded.
+ * In production the address comes from /config.json (RACE_SERVER_URL on the
+ * Cloud Run service), so pointing the site at a race server needs no rebuild.
  */
-export const RACE_SERVER_URL: string =
-  (import.meta.env.VITE_RACE_SERVER_URL as string | undefined) ?? 'http://localhost:8000'
+export const RACE_SERVER_URL: string = DEFAULT_CONFIG.raceServerUrl

@@ -4,8 +4,27 @@ import { DEFAULT_CONFIG, parseConfig } from './config'
 describe('parseConfig', () => {
   it('reads a complete config', () => {
     expect(
-      parseConfig({ modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx', telemetry: true, appVersion: 'abc123' }),
-    ).toEqual({ modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx', telemetry: true, appVersion: 'abc123' })
+      parseConfig({
+        modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx',
+        telemetry: true,
+        appVersion: 'abc123',
+        raceServerUrl: 'https://race-server.example.run.app',
+      }),
+    ).toEqual({
+      modelUrl: 'https://storage.googleapis.com/b/models/r1/gazenet.onnx',
+      telemetry: true,
+      appVersion: 'abc123',
+      raceServerUrl: 'https://race-server.example.run.app',
+    })
+  })
+
+  it('drops a trailing slash from the race server address', () => {
+    expect(parseConfig({ raceServerUrl: 'https://race.example.run.app/' }).raceServerUrl).toBe('https://race.example.run.app')
+  })
+
+  it('keeps the local race server when the served address is empty', () => {
+    // nginx renders an unset RACE_SERVER_URL as an empty string
+    expect(parseConfig({ raceServerUrl: '' }).raceServerUrl).toBe(DEFAULT_CONFIG.raceServerUrl)
   })
 
   it('accepts telemetry as the string nginx renders from an env var', () => {
@@ -15,7 +34,7 @@ describe('parseConfig', () => {
 
   it('falls back to the defaults for anything missing or malformed', () => {
     expect(parseConfig(null)).toEqual(DEFAULT_CONFIG)
-    expect(parseConfig({ modelUrl: '  ', telemetry: 1, appVersion: 7 })).toEqual(DEFAULT_CONFIG)
+    expect(parseConfig({ modelUrl: '  ', telemetry: 1, appVersion: 7, raceServerUrl: 3 })).toEqual(DEFAULT_CONFIG)
   })
 })
 

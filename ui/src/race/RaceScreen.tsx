@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GAZE_MOVE_INTERVAL_MS, KEYBOARD_MOVE_INTERVAL_MS, RACE_SERVER_URL } from '../config'
+import { GAZE_MOVE_INTERVAL_MS, KEYBOARD_MOVE_INTERVAL_MS, RACE_SERVER_URL, loadRuntimeConfig } from '../config'
 import { GazeCrosshair } from '../gaze/GazeCrosshair'
 import { useGazeTracking } from '../gaze/useGazeTracking'
 import type { Direction } from '../maze/gazeDirection'
@@ -31,13 +31,27 @@ const ERROR_TEXT: Record<string, string> = {
 
 interface Props {
   onBack: () => void
+  /** Race backend address; by default it comes from /config.json. */
   serverUrl?: string
   /** The player's saved calibration, applied the same way as in the solo maze. */
   calibration?: CalibrationSession | null
 }
 
 /** Two-player race: create or join a room, then race the opponent's ghost to the cheese. */
-export function RaceScreen({ onBack, serverUrl = RACE_SERVER_URL, calibration }: Props) {
+export function RaceScreen({ onBack, serverUrl: serverUrlProp, calibration }: Props) {
+  // The deployed site names its race server in /config.json; locally it falls
+  // back to RACE_SERVER_URL (localhost:8000).
+  const [configServerUrl, setConfigServerUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (serverUrlProp) return
+    let live = true
+    void loadRuntimeConfig().then((config) => {
+      if (live) setConfigServerUrl(config.raceServerUrl)
+    })
+    return () => { live = false }
+  }, [serverUrlProp])
+  const serverUrl = serverUrlProp ?? configServerUrl ?? RACE_SERVER_URL
+
   const socketRef = useRef<WebSocket | null>(null)
   const [phase, setPhase] = useState<Phase>('lobby')
   const [code, setCode] = useState('')
