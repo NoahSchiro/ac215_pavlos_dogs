@@ -12,10 +12,10 @@ vi.mock('../calibration/useCamera', () => ({ useCamera: vi.fn() }))
 vi.mock('../vision/utils', () => ({ getLandmarker: vi.fn() }))
 vi.mock('../vision/model', () => ({ loadGazeModel: vi.fn(), predictGaze: vi.fn() }))
 vi.mock('./Maze', () => ({
-  default: ({ gazePoint, onRecenter }: { gazePoint?: { x: number } | null; onRecenter?: (shift: { x: number; y: number }) => void }) => (
+  default: ({ gazePoint, onRecenter }: { gazePoint?: { x: number } | null; onRecenter?: (result: { at: { x: number; y: number }; shift: { x: number; y: number } }) => void }) => (
     <>
       <div data-testid="maze-gaze">{gazePoint ? gazePoint.x.toFixed(2) : 'none'}</div>
-      <button type="button" onClick={() => onRecenter?.({ x: 0.1, y: 0 })}>Fake recenter</button>
+      <button type="button" onClick={() => onRecenter?.({ at: { x: 0.2, y: 0.5 }, shift: { x: 0.1, y: 0 } })}>Fake recenter</button>
     </>
   ),
 }))

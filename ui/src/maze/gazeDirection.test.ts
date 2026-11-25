@@ -39,6 +39,14 @@ test('clamps finite corrected coordinates at the gameplay boundary', () => {
   expect(prepareGameplayGaze({ x: 0.5, y: 0.5 }, adjusted, TEST_CAMERA, dimensions)).toEqual({
     calibrated: true, point: { x: 1, y: 0 },
   })
+  // Gameplay passes a margin: points may land that far off screen.
+  expect(prepareGameplayGaze({ x: 0.5, y: 0.5 }, adjusted, TEST_CAMERA, dimensions, 0.3)).toEqual({
+    calibrated: true, point: { x: 1.3, y: -0.3 },
+  })
+  const slightly = { ...adjusted, record: { ...adjusted.record, calibration: {
+    ...adjusted.record.calibration, fit: { weight: [[1, 0], [0, 1]] as const, intercept: [0.6, 0] as const, lambda: 0.1 },
+  } } }
+  expect(prepareGameplayGaze({ x: 0.5, y: 0.5 }, slightly, TEST_CAMERA, dimensions, 0.3)!.point.x).toBeCloseTo(1.1, 12)
 })
 
 test.each([{ x: NaN, y: 0.5 }, { x: 0.5, y: Infinity }])('rejects non-finite raw output: %j', (point) => {

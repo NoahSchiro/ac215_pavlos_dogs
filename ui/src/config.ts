@@ -112,21 +112,36 @@ export const GAZE_DWELL_RADIUS = 0.08
 export const GAZE_TARGET_HOLD_CELLS = 0.25
 
 /**
- * Dynamic recentering: stare at Pavlos to fix a constant gaze offset. It is
- * started from the Recenter strip (RECENTER_STRIP). A steady stare near him
- * for RECENTER.confirmMs then starts capture; the median of the next
- * captureSamples predictions (one per GAZE_PREDICTION_INTERVAL_MS, so about
- * 1 s) is compared with his centre, and that shift is added to later gaze.
- * Stares further than maxShift (fraction of the screen height) from him are
- * taken as looking elsewhere. Pavlos holds still meanwhile.
+ * Dynamic recentering: stare at Pavlos to correct the gaze offset near him.
+ * It is started from the Recenter strip (RECENTER_STRIP). A steady stare
+ * within stareRadius of him (fraction of the screen height) for confirmMs
+ * starts capture; the median of the next captureSamples predictions (one per
+ * GAZE_PREDICTION_INTERVAL_MS, so about 1 s) is compared with his centre.
+ * Pavlos holds still meanwhile.
+ *
+ * Each result is kept as an anchor at his position. Its shift applies in full
+ * there and fades with distance: weight = floor + (1 - floor) * exp(-d² / 2σ²),
+ * d in screen heights. The floor keeps part of it everywhere, for drift that
+ * moves all of the gaze (e.g. leaning). A recenter within mergeRadius of an
+ * older one replaces it; at most maxAnchors are kept. The total correction at
+ * any point is capped at maxShift (fraction of the screen height).
  */
 export const RECENTER = {
   confirmMs: 1000,
   captureSamples: 5,
   holdRadius: 0.08,
-  maxShift: 0.25,
+  stareRadius: 0.25,
+  maxShift: 0.15,
+  falloff: { sigma: 0.3, floor: 0.25, mergeRadius: 0.15, maxAnchors: 4 },
   timeoutMs: 10_000,
 }
+
+/**
+ * Gameplay gaze may land up to this far outside the screen (viewport
+ * fraction per side) after recentering, so that gaze error near an edge is
+ * not piled up on the edge and Pavlos can still be steered along it.
+ */
+export const GAZE_PADDING = 0.15
 
 /** How long Pavlos shows the recenter result before play resumes. */
 export const RECENTER_RESULT_MS = 1000
@@ -170,11 +185,15 @@ export const GAZE_CENTER_MAX = 0.6
 
 /**
  * Kalman smoothing of gaze predictions. Higher measurementStd or lower
- * accelerationStd gives smoother but slower-reacting gaze.
+ * accelerationStd gives smoother but slower-reacting gaze. Estimates (and
+ * calibrated predictions) are clamped to [-margin, 1 + margin].
  */
 export const GAZE_SMOOTHING = {
   measurementStd: 0.05,
   accelerationStd: 0.5,
+  // Before recentering: wide enough that a correction can still bring any
+  // point to the edge of GAZE_PADDING.
+  margin: GAZE_PADDING + RECENTER.maxShift,
 }
 
 /** How long the gaze crosshair takes to glide to each new position, in milliseconds. */

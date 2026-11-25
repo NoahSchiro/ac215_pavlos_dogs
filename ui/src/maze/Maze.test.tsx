@@ -370,9 +370,11 @@ describe('Maze gaze steering', () => {
       expect(getPlayerPosition()).toEqual(start)
 
       expect(onRecenter).toHaveBeenCalledOnce()
-      const [shift] = onRecenter.mock.calls[0]
+      const [{ at, shift }] = onRecenter.mock.calls[0]
       const pavlos = gazeAtCell(start.row, start.col)
       const seen = gazeAtCell(reads.row, reads.col)
+      expect(at.x).toBeCloseTo(pavlos.x, 12)
+      expect(at.y).toBeCloseTo(pavlos.y, 12)
       expect(shift.x).toBeCloseTo(pavlos.x - seen.x, 12)
       expect(shift.y).toBeCloseTo(0, 12)
 

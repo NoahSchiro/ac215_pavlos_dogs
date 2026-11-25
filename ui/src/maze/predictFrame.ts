@@ -41,7 +41,8 @@ export async function predictMazeFrame({
         ...(raw === null ? {} : { status: `Tracking paused: ${raw}` }) }
     }
 
-    const prepared = prepareGameplayGaze(raw, calibration, captureCameraSettings(stream), image)
+    const prepared = prepareGameplayGaze(
+      raw, calibration, captureCameraSettings(stream), image, filter.options.margin)
     const smoothed = filter.update(prepared?.point ?? null, now)
     // Advance the filter on invalid frames without displaying or using stale estimates.
     const point = prepared ? smoothed : null

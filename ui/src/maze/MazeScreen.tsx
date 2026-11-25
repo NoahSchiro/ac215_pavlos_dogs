@@ -6,14 +6,16 @@ import { GazeCrosshair } from '../gaze/GazeCrosshair'
 import type { CalibrationSession } from '../calibration/record'
 import { predictMazeFrame } from './predictFrame'
 import Maze from './Maze'
-import { addShift, applyShift, NO_SHIFT, type GazeShift } from './recenter'
+import { addRecenter, correctGaze, NO_CORRECTION, type GazeCorrection } from './recenter'
 import { GazeKalmanFilter } from '../gaze/kalman'
 import { enterFullscreen } from '../calibration/fullscreen'
 import { currentViewport, sameViewport } from '../vision/viewport'
 import {
+  GAZE_PADDING,
   GAZE_PREDICTION_INTERVAL_MS,
   GAZE_SMOOTHING,
   MAZE_DISPLAY_SIZE,
+  RECENTER,
 } from '../config'
 
 interface Props {
@@ -36,8 +38,8 @@ export function MazeScreen({ onBack, calibration }: Props) {
   const [starting, setStarting] = useState(false)
   const [gazeStatus, setGazeStatus] = useState('Starting camera...')
   const [gazePoint, setGazePoint] = useState<ScreenFraction | null>(null)
-  // Offset from dynamic recentering, added to every prediction.
-  const gazeShift = useRef<GazeShift>(NO_SHIFT)
+  // Corrections from dynamic recentering, added to every prediction.
+  const gazeCorrection = useRef<GazeCorrection>(NO_CORRECTION)
   const [layout, setLayout] = useState(currentLayout)
 
   const initialLayout = useRef<ReturnType<typeof currentLayout> | null>(null)
@@ -155,8 +157,8 @@ export function MazeScreen({ onBack, calibration }: Props) {
         if (signal.aborted) return
 
         const kf = new GazeKalmanFilter(GAZE_SMOOTHING)
-        // A new calibration or camera session starts without a recenter offset.
-        gazeShift.current = NO_SHIFT
+        // A new calibration or camera session starts without recenter corrections.
+        gazeCorrection.current = NO_CORRECTION
         setGazeStatus('Tracking gaze')
 
         async function predict() {
@@ -176,7 +178,9 @@ export function MazeScreen({ onBack, calibration }: Props) {
           if (signal.aborted) return
 
           if (result) {
-            setGazePoint(applyShift(result.point, gazeShift.current))
+            setGazePoint(correctGaze(
+              result.point, gazeCorrection.current, currentViewport(), RECENTER, GAZE_PADDING,
+            ))
 
             if (result.status !== undefined) {
               setGazeStatus(result.status)
@@ -290,8 +294,8 @@ export function MazeScreen({ onBack, calibration }: Props) {
 
         <Maze
           gazePoint={gazePoint}
-          onRecenter={(shift) => {
-            gazeShift.current = addShift(gazeShift.current, shift)
+          onRecenter={(result) => {
+            gazeCorrection.current = addRecenter(gazeCorrection.current, result, currentViewport(), RECENTER)
           }}
         />
       </div>

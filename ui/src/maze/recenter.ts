@@ -2,10 +2,19 @@ import { trackFixation, type Fixation } from './dwell'
 import type { ScreenFraction } from '../vision/model'
 import type { Viewport } from '../vision/viewport'
 
-/** An offset added to every gaze point, in viewport fractions. */
+/** An offset added to a gaze point, in viewport fractions. */
 export interface GazeShift { x: number; y: number }
 
-export const NO_SHIFT: GazeShift = { x: 0, y: 0 }
+/**
+ * One recenter's correction: `shift` applies in full at `at` (where Pavlos
+ * was) and fades with distance from it.
+ */
+export interface RecenterAnchor { at: ScreenFraction; shift: GazeShift }
+
+/** Every recenter correction since tracking started, oldest first. */
+export type GazeCorrection = readonly RecenterAnchor[]
+
+export const NO_CORRECTION: GazeCorrection = []
 
 export interface RecenterSettings {
   /** How long a steady stare near Pavlos must last before capture starts. */
@@ -15,9 +24,24 @@ export interface RecenterSettings {
   /** A stare holds while samples stay this close to its mean (fraction of screen height). */
   holdRadius: number
   /** Ignore stares further than this from Pavlos (fraction of screen height): not at him. */
-  maxShift: number
+  stareRadius: number
   /** Give up if no capture finishes this long after starting. */
   timeoutMs: number
+}
+
+export interface CorrectionSettings {
+  /** Largest total correction at any point (fraction of screen height). */
+  maxShift: number
+  falloff: {
+    /** Gaussian width of the fade, in screen heights. */
+    sigma: number
+    /** Share of each shift that still applies far away (0 = purely local). */
+    floor: number
+    /** A new recenter this close to an older one replaces it (screen heights). */
+    mergeRadius: number
+    /** Keep at most this many anchors; the oldest goes first. */
+    maxAnchors: number
+  }
 }
 
 export type RecenterState =
@@ -30,8 +54,8 @@ export type RecenterState =
   | { phase: 'confirming'; startedAt: number; fixation: Fixation | null; retry: boolean }
   /** Stare confirmed: collecting `captureSamples` gaze points. */
   | { phase: 'capturing'; startedAt: number; fixation: Fixation; samples: ScreenFraction[] }
-  /** Finished: add `shift` to future gaze points. */
-  | { phase: 'done'; shift: GazeShift }
+  /** Finished: gaze read `shift` away from Pavlos's centre `at` (see addRecenter). */
+  | { phase: 'done'; at: ScreenFraction; shift: GazeShift }
   /** No capture within `timeoutMs`. */
   | { phase: 'gaveUp' }
 
@@ -111,7 +135,7 @@ export function sampleRecenter(state: RecenterState, sample: RecenterSample, set
 
   const near = !!point && Number.isFinite(point.x) && Number.isFinite(point.y) &&
     viewport.width > 0 && viewport.height > 0 &&
-    heightDistance(point, target, viewport) <= settings.maxShift
+    heightDistance(point, target, viewport) <= settings.stareRadius
   const previous = state.fixation
   const fixation = near ? trackFixation(previous, point, now, viewport, settings.holdRadius) : null
 
@@ -131,17 +155,73 @@ export function sampleRecenter(state: RecenterState, sample: RecenterSample, set
     return { ...state, fixation, samples }
   }
   const seen = { x: median(samples.map((p) => p.x)), y: median(samples.map((p) => p.y)) }
-  return { phase: 'done', shift: { x: target.x - seen.x, y: target.y - seen.y } }
+  return { phase: 'done', at: target, shift: { x: target.x - seen.x, y: target.y - seen.y } }
 }
 
-/** Add a shift to a gaze point. */
-export function applyShift(point: ScreenFraction, shift: GazeShift): ScreenFraction
-export function applyShift(point: ScreenFraction | null, shift: GazeShift): ScreenFraction | null
-export function applyShift(point: ScreenFraction | null, shift: GazeShift): ScreenFraction | null {
-  return point && { x: point.x + shift.x, y: point.y + shift.y }
+function falloffWeight(distance: number, falloff: CorrectionSettings['falloff']): number {
+  if (!Number.isFinite(distance)) return falloff.floor
+  return falloff.floor + (1 - falloff.floor) * Math.exp(-(distance ** 2) / (2 * falloff.sigma ** 2))
 }
 
-/** Combine an existing shift with a new correction measured on already-shifted gaze. */
-export function addShift(a: GazeShift, b: GazeShift): GazeShift {
-  return { x: a.x + b.x, y: a.y + b.y }
+/** Scale `shift` down so it is no longer than `maxShift` screen heights. */
+function capShift(shift: GazeShift, viewport: Viewport, maxShift: number): GazeShift {
+  const size = Math.hypot((shift.x * viewport.width) / viewport.height, shift.y)
+  if (!(size > maxShift)) return shift
+  return { x: (shift.x * maxShift) / size, y: (shift.y * maxShift) / size }
+}
+
+/** Weighted sum of the anchors' shifts at `point`, before the cap. */
+function sumAt(correction: GazeCorrection, point: ScreenFraction, viewport: Viewport, settings: CorrectionSettings): GazeShift {
+  let x = 0
+  let y = 0
+  for (const anchor of correction) {
+    const weight = falloffWeight(heightDistance(point, anchor.at, viewport), settings.falloff)
+    x += weight * anchor.shift.x
+    y += weight * anchor.shift.y
+  }
+  return { x, y }
+}
+
+/**
+ * The correction to add to a gaze point at `point`: each anchor's shift,
+ * weighted by a Gaussian fade with a floor, summed and capped at `maxShift`.
+ */
+export function correctionAt(
+  correction: GazeCorrection, point: ScreenFraction, viewport: Viewport, settings: CorrectionSettings,
+): GazeShift {
+  return capShift(sumAt(correction, point, viewport, settings), viewport, settings.maxShift)
+}
+
+/**
+ * Correct a gaze point and clamp it to the screen plus `padding` on each side
+ * (viewport fractions). The padding leaves room for gaze error at the edges.
+ */
+export function correctGaze(
+  point: ScreenFraction | null, correction: GazeCorrection, viewport: Viewport,
+  settings: CorrectionSettings, padding: number,
+): ScreenFraction | null {
+  if (!point) return null
+  const shift = correctionAt(correction, point, viewport, settings)
+  const clamp = (v: number) => Math.min(1 + padding, Math.max(0 - padding, v))
+  return { x: clamp(point.x + shift.x), y: clamp(point.y + shift.y) }
+}
+
+/**
+ * Add a finished recenter. `result.shift` was measured on gaze that was
+ * already corrected, so the correction at `result.at` becomes what was
+ * applied there plus `result.shift`. Older anchors within `mergeRadius` are
+ * replaced by the new one.
+ */
+export function addRecenter(
+  correction: GazeCorrection, result: RecenterAnchor, viewport: Viewport, settings: CorrectionSettings,
+): GazeCorrection {
+  const { at, shift } = result
+  const applied = correctionAt(correction, at, viewport, settings)
+  const kept = correction.filter((anchor) => !(heightDistance(anchor.at, at, viewport) <= settings.falloff.mergeRadius))
+  const others = sumAt(kept, at, viewport, settings)
+  // The new anchor has full weight at `at`: make the total there come out right.
+  const own = capShift(
+    { x: applied.x + shift.x - others.x, y: applied.y + shift.y - others.y }, viewport, settings.maxShift,
+  )
+  return [...kept, { at, shift: own }].slice(-settings.falloff.maxAnchors)
 }

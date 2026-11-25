@@ -14,7 +14,7 @@ import {
   sampleRecenter,
   stareHeld,
   startRecenter,
-  type GazeShift,
+  type RecenterAnchor,
   type RecenterState,
 } from './recenter'
 import type { Direction } from './gazeDirection'
@@ -136,8 +136,8 @@ function randomPositions(): {
 interface MazeProps {
   /** Latest smoothed gaze, as viewport fractions; null while gaze is unavailable. */
   gazePoint?: ScreenFraction | null
-  /** A recenter finished: add `shift` to future gaze points. */
-  onRecenter?: (shift: GazeShift) => void
+  /** A recenter finished: gaze read `shift` away from Pavlos's centre `at`. */
+  onRecenter?: (result: RecenterAnchor) => void
 }
 
 // Pavlos's centre on screen, as viewport fractions.
@@ -323,7 +323,7 @@ export default function Maze({ gazePoint = null, onRecenter }: MazeProps) {
     onRecenterRef.current = onRecenter
   }, [onRecenter])
   useEffect(() => {
-    if (recenter.phase === 'done') onRecenterRef.current?.(recenter.shift)
+    if (recenter.phase === 'done') onRecenterRef.current?.({ at: recenter.at, shift: recenter.shift })
     if (recenter.phase !== 'done' && recenter.phase !== 'gaveUp') return
     const timer = setTimeout(() => setRecenter({ phase: 'idle' }), RECENTER_RESULT_MS)
     return () => clearTimeout(timer)

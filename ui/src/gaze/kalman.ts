@@ -6,6 +6,8 @@ export interface GazeKalmanOptions {
   gateChi2: number
   maxRejections: number
   maxGapMs: number
+  /** Estimates are clamped to [-margin, 1 + margin]; 0 keeps them on screen. */
+  margin: number
 }
 
 export const DEFAULT_GAZE_KALMAN_OPTIONS: GazeKalmanOptions = {
@@ -14,6 +16,7 @@ export const DEFAULT_GAZE_KALMAN_OPTIONS: GazeKalmanOptions = {
   gateChi2: 13.82,
   maxRejections: 2,
   maxGapMs: 500,
+  margin: 0,
 }
 
 interface AxisState {
@@ -137,7 +140,8 @@ export class GazeKalmanFilter {
 
   private estimate(): ScreenFraction | null {
     if (!this.x || !this.y) return null
-    const clamp = (v: number) => Math.min(1, Math.max(0, v))
+    const { margin } = this.options
+    const clamp = (v: number) => Math.min(1 + margin, Math.max(0 - margin, v))
     return { x: clamp(this.x.p), y: clamp(this.y.p) }
   }
 }

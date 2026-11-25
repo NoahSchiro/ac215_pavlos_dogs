@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addShift, applyShift, holdsPavlos, isRecentering, recenterProgress, sampleRecenter, stareHeld, startRecenter,
-  type RecenterSettings, type RecenterState,
+  addRecenter, correctGaze, correctionAt, holdsPavlos, isRecentering, NO_CORRECTION, recenterProgress,
+  sampleRecenter, stareHeld, startRecenter,
+  type CorrectionSettings, type GazeCorrection, type RecenterSettings, type RecenterState,
 } from './recenter'
 
-const SETTINGS: RecenterSettings = { confirmMs: 1500, captureSamples: 5, holdRadius: 0.08, maxShift: 0.25, timeoutMs: 10_000 }
+const SETTINGS: RecenterSettings = { confirmMs: 1500, captureSamples: 5, holdRadius: 0.08, stareRadius: 0.25, timeoutMs: 10_000 }
 const SQUARE = { width: 1000, height: 1000 }
 const PAVLOS = { x: 0.5, y: 0.5 }
 const STEP_MS = 200 // one prediction
@@ -106,14 +107,97 @@ describe('progress', () => {
   })
 })
 
-describe('shifts', () => {
-  it('apply to gaze points and add up across recenters', () => {
-    const shift = addShift({ x: 0.01, y: -0.05 }, { x: -0.03, y: -0.02 })
-    expect(shift.x).toBeCloseTo(-0.02, 12)
-    expect(shift.y).toBeCloseTo(-0.07, 12)
-    const point = applyShift({ x: 0.5, y: 0.5 }, shift)
-    expect(point.x).toBeCloseTo(0.48, 12)
-    expect(point.y).toBeCloseTo(0.43, 12)
-    expect(applyShift(null, shift)).toBeNull()
+const CORRECTION: CorrectionSettings = {
+  maxShift: 0.15, falloff: { sigma: 0.3, floor: 0.25, mergeRadius: 0.15, maxAnchors: 4 },
+}
+const WIDE = { width: 1600, height: 900 }
+
+describe('corrections', () => {
+  it('records where the stare was, with the shift', () => {
+    // Confirmed at 1600 ms, then five samples captured.
+    const state = feed(startRecenter(0), repeat(14, OFF))
+    expect(state).toMatchObject({ phase: 'done', at: PAVLOS })
+  })
+
+  it('apply in full at the recenter point and fade with distance, down to the floor', () => {
+    const correction = addRecenter(NO_CORRECTION, { at: { x: 0.5, y: 0.9 }, shift: { x: 0, y: -0.1 } }, SQUARE, CORRECTION)
+    const at = (y: number) => correctionAt(correction, { x: 0.5, y }, SQUARE, CORRECTION).y
+    expect(at(0.9)).toBeCloseTo(-0.1, 12)
+    // One drive radius away (0.25) it is still mostly there.
+    expect(at(0.65)).toBeCloseTo(-0.1 * (0.25 + 0.75 * Math.exp(-(0.25 ** 2) / (2 * 0.3 ** 2))), 12)
+    expect(at(0.65)).toBeLessThan(-0.07)
+    // The far edge keeps only the floor.
+    expect(at(0)).toBeGreaterThan(-0.03)
+    expect(at(0)).toBeLessThan(-0.025)
+  })
+
+  it('measure distance in screen heights on a wide screen', () => {
+    const correction = addRecenter(NO_CORRECTION, { at: { x: 0.5, y: 0.5 }, shift: { x: 0.05, y: 0 } }, WIDE, CORRECTION)
+    // 0.3 of the width on a 16:9 screen is 0.53 screen heights: further than 0.3 of the height.
+    const across = correctionAt(correction, { x: 0.8, y: 0.5 }, WIDE, CORRECTION).x
+    const down = correctionAt(correction, { x: 0.5, y: 0.8 }, WIDE, CORRECTION).x
+    expect(across).toBeLessThan(down)
+  })
+
+  it('build on the correction already applied, and replace a nearby anchor', () => {
+    const at = { x: 0.5, y: 0.9 }
+    let correction = addRecenter(NO_CORRECTION, { at, shift: { x: 0, y: -0.06 } }, SQUARE, CORRECTION)
+    // Recentering again a little to the side: gaze still reads 0.02 low there.
+    const next = { x: 0.52, y: 0.9 }
+    const applied = correctionAt(correction, next, SQUARE, CORRECTION).y
+    correction = addRecenter(correction, { at: next, shift: { x: 0, y: -0.02 } }, SQUARE, CORRECTION)
+    expect(correction).toHaveLength(1)
+    expect(correction[0].at).toEqual(next)
+    expect(correctionAt(correction, next, SQUARE, CORRECTION).y).toBeCloseTo(applied - 0.02, 12)
+  })
+
+  it('keep separate anchors apart, each right at its own point', () => {
+    let correction: GazeCorrection = NO_CORRECTION
+    correction = addRecenter(correction, { at: { x: 0.5, y: 0.1 }, shift: { x: 0, y: 0.05 } }, SQUARE, CORRECTION)
+    const top = correctionAt(correction, { x: 0.5, y: 0.1 }, SQUARE, CORRECTION).y
+    const bottomBefore = correctionAt(correction, { x: 0.5, y: 0.9 }, SQUARE, CORRECTION).y
+    correction = addRecenter(correction, {
+      at: { x: 0.5, y: 0.9 }, shift: { x: 0, y: -0.04 - bottomBefore },
+    }, SQUARE, CORRECTION)
+    expect(correction).toHaveLength(2)
+    expect(correctionAt(correction, { x: 0.5, y: 0.9 }, SQUARE, CORRECTION).y).toBeCloseTo(-0.04, 12)
+    // The top moves only by the bottom anchor's faded share.
+    const topAfter = correctionAt(correction, { x: 0.5, y: 0.1 }, SQUARE, CORRECTION).y
+    expect(Math.abs(topAfter - top)).toBeLessThan(0.02)
+  })
+
+  it('keep at most maxAnchors, dropping the oldest', () => {
+    let correction: GazeCorrection = NO_CORRECTION
+    for (const x of [0.1, 0.4, 0.7, 1.0, 1.3]) {
+      correction = addRecenter(correction, { at: { x, y: 0.5 }, shift: { x: 0.01, y: 0 } }, SQUARE, CORRECTION)
+    }
+    expect(correction.map((anchor) => anchor.at.x)).toEqual([0.4, 0.7, 1.0, 1.3])
+  })
+
+  it('cap the total correction at maxShift', () => {
+    const correction = addRecenter(NO_CORRECTION, { at: PAVLOS, shift: { x: 0, y: 0.4 } }, SQUARE, CORRECTION)
+    expect(correctionAt(correction, PAVLOS, SQUARE, CORRECTION).y).toBeCloseTo(0.15, 12)
+    const wide = addRecenter(NO_CORRECTION, { at: PAVLOS, shift: { x: 0.3, y: 0 } }, WIDE, CORRECTION)
+    // 0.15 screen heights is 0.15 * 900 / 1600 of the width.
+    expect(correctionAt(wide, PAVLOS, WIDE, CORRECTION).x).toBeCloseTo((0.15 * 900) / 1600, 12)
+  })
+
+  it('never fold the screen over, even at the largest shift', () => {
+    const correction = addRecenter(NO_CORRECTION, { at: PAVLOS, shift: { x: 0, y: 0.15 } }, SQUARE, CORRECTION)
+    let previous = -Infinity
+    for (let y = -0.3; y <= 1.3; y += 0.005) {
+      const corrected = y + correctionAt(correction, { x: 0.5, y }, SQUARE, CORRECTION).y
+      expect(corrected).toBeGreaterThan(previous)
+      previous = corrected
+    }
+  })
+
+  it('correct gaze and keep it within the padded screen', () => {
+    const correction = addRecenter(NO_CORRECTION, { at: { x: 0.5, y: 0.9 }, shift: { x: 0, y: 0.1 } }, SQUARE, CORRECTION)
+    // A look past the bottom edge is kept, up to the padding.
+    expect(correctGaze({ x: 0.5, y: 1.0 }, correction, SQUARE, CORRECTION, 0.15)!.y).toBeGreaterThan(1.05)
+    expect(correctGaze({ x: 0.5, y: 1.25 }, correction, SQUARE, CORRECTION, 0.15)!.y).toBe(1.15)
+    expect(correctGaze({ x: -0.4, y: 0.5 }, NO_CORRECTION, SQUARE, CORRECTION, 0.15)!.x).toBe(-0.15)
+    expect(correctGaze(null, correction, SQUARE, CORRECTION, 0.15)).toBeNull()
   })
 })

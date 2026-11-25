@@ -97,6 +97,16 @@ describe('GazeKalmanFilter', () => {
     expect(est.x).toBeGreaterThan(0.9)
   })
 
+  test('lets estimates run past the screen by the margin, and no further', () => {
+    const kf = new GazeKalmanFilter({ gateChi2: Infinity, margin: 0.3 })
+    for (let i = 0; i < 20; i++) kf.update({ x: 1.1, y: -0.1 }, i * FRAME_MS)
+    const est = kf.update({ x: 1.1, y: -0.1 }, 20 * FRAME_MS)!
+    expect(est.x).toBeCloseTo(1.1, 3)
+    expect(est.y).toBeCloseTo(-0.1, 3)
+    for (let i = 21; i < 40; i++) kf.update({ x: 2, y: 0.5 }, i * FRAME_MS)
+    expect(kf.update({ x: 2, y: 0.5 }, 40 * FRAME_MS)!.x).toBe(1.3)
+  })
+
   test('handles irregular frame timing and out-of-order timestamps', () => {
     const kf = new GazeKalmanFilter()
     const times = [0, 20, 70, 75, 140, 130, 200]
