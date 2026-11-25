@@ -73,8 +73,44 @@ not. `train.py` is the only entry point.
 ### Notes
 
 - Crops and labels are computed once into webdataset shards, so `__getitem__` is a shard read plus a PNG decode rather than a MediaPipe pass. The shards are ~2.9GB for MPIIFaceGaze.
-- Filtering thresholds live as constants in `filter_dataset`; the virtual-camera parameters are constants in `normalize_face`. Both must stay identical across datasets and match the TypeScript port of steps 2 and 4 planned for browser inference.
+- Filtering thresholds live as constants in `filter_dataset`; the virtual-camera parameters are the `NORM_*` constants in `src/data/utils.py`. Both must stay identical across datasets and match the TypeScript port in `ui/src/vision/`, which the parity fixtures below enforce.
 - Adding a second dataset should be simple write a new parser to `Sample`, pass those samples through `filter_dataset()` and wrap it up in a torch Dataset.
+
+### Parity fixtures for the browser port
+
+`ui/src/vision/` reimplements steps 2-5 so the ONNX export can run in the
+browser, and `ui/src/vision/parity.test.ts` checks that port against reference
+outputs recorded from this package. `tools/gen_parity_fixtures.py` is what
+records them:
+
+```bash
+uv run python tools/gen_parity_fixtures.py          # rewrite the fixtures
+uv run python tools/gen_parity_fixtures.py --check  # verify, as CI does
+```
+
+CI runs `--check` on every pull request. It regenerates into a temporary
+directory and fails if the result has drifted from what is committed, so
+preprocessing cannot change here without the browser's reference changing with
+it. Without that gate the TypeScript suite keeps passing against stale
+references while the two implementations quietly diverge.
+
+Two things to know before regenerating:
+
+- **MediaPipe aborts on macOS** (it fails inside Metal), so run this in the
+  training container:
+
+  ```bash
+  docker run --rm -v "$PWD/..:/repo" -w /repo/model \
+      --entrypoint uv gaze-model:dev run python tools/gen_parity_fixtures.py
+  ```
+
+- **Regenerate on linux/amd64.** MediaPipe and OpenCV are not bit-reproducible
+  across CPU architectures: on arm64 the landmarks move by ~0.01px and the
+  crops shift by up to one LSB. `parity.test.ts` compares crops byte for byte,
+  so fixtures recorded on an Apple Silicon Mac can fail CI. `--check` is
+  tolerance-based and passes on either architecture; `--check --strict` demands
+  a byte-for-byte match and is only meaningful on the architecture the fixtures
+  were recorded on.
 
 ## Training
 
