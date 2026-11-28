@@ -6,6 +6,8 @@
 #   MODEL_URL    the ONNX model the browser loads, served to it via /config.json.
 #   TELEMETRY    "true" to have the browser beacon usage aggregates to /t.
 #   APP_VERSION  the deployed build, reported with telemetry.
+#   RACE_SERVER_URL  the race backend for race mode, served via /config.json
+#                (empty = the UI's default, http://localhost:8000).
 
 # Telemetry beacons carry their numbers as query arguments. Each one is
 # validated here, so the JSON log line below stays well formed whatever a
@@ -51,7 +53,7 @@ server {
     location = /config.json {
         default_type application/json;
         add_header Cache-Control "no-store" always;
-        return 200 '{"modelUrl":"${MODEL_URL}","telemetry":"${TELEMETRY}","appVersion":"${APP_VERSION}"}';
+        return 200 '{"modelUrl":"${MODEL_URL}","telemetry":"${TELEMETRY}","appVersion":"${APP_VERSION}","raceServerUrl":"${RACE_SERVER_URL}"}';
     }
 
     # Telemetry beacons from ui/src/telemetry.ts: one JSON line each on stdout,

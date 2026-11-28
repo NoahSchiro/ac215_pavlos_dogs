@@ -94,7 +94,8 @@ function validationCapture(): CalibrationResult {
 describe('App', () => {
   it('opens the maze camera screen without requesting fullscreen before permission', async () => {
     render(<App />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Maze/ })) })
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Single player/ })) })
     expect(requestFullscreen).not.toHaveBeenCalled()
     expect(screen.getByRole('group', { name: 'Maze' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start game' })).toBeDisabled()
@@ -102,7 +103,8 @@ describe('App', () => {
 
   it('can return from maze setup and start calibration without requesting fullscreen', async () => {
     render(<App />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Maze/ })) })
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Single player/ })) })
     fireEvent.click(screen.getByRole('button', { name: 'Back to Home' }))
     fireEvent.click(screen.getByRole('button', { name: /^Calibration/ }))
     expect(screen.getByTestId('calibration-screen')).toBeInTheDocument()
@@ -152,9 +154,29 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /^Calibration/ })).toBeInTheDocument()
   })
 
+  it('asks for a mode after choosing the maze, and can go back', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    const modes = screen.getByRole('group', { name: 'Choose a mode' })
+    expect(modes).toHaveTextContent('Single player')
+    expect(modes).toHaveTextContent('Race a friend')
+
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    expect(screen.getByRole('button', { name: /^Calibration/ })).toBeInTheDocument()
+  })
+
+  it('opens race mode from the maze menu', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Race a friend/ })) })
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Race a friend')
+    expect(screen.getByRole('button', { name: 'Create race' })).toBeInTheDocument()
+  })
+
   it('opens the maze and returns home', async () => {
     render(<App />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Maze/ })) })
+    fireEvent.click(screen.getByRole('button', { name: /^Maze/ }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Single player/ })) })
     expect(screen.getByRole('group', { name: 'Maze' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Back to Home/i }))

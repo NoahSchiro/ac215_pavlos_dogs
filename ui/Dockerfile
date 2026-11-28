@@ -27,7 +27,8 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 ENV PORT=80 \
     MODEL_URL=/models/gazenet.onnx \
     TELEMETRY=true \
-    APP_VERSION=dev
+    APP_VERSION=dev \
+    RACE_SERVER_URL=""
 
 # Expose the web server port
 EXPOSE 80
