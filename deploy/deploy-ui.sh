@@ -13,6 +13,10 @@ set -euo pipefail
 : "${MODEL_URL:?set MODEL_URL to a published model (deploy/publish-model.sh prints it)}"
 REGION="${REGION:-us-east1}"
 RACE_SERVER_URL="${RACE_SERVER_URL:-}"
+if [[ -z "$RACE_SERVER_URL" ]]; then
+  echo "warning: RACE_SERVER_URL is not set, so race mode on this deploy will" >&2
+  echo "  say no race server is configured. Set it to the race-server Cloud Run URL." >&2
+fi
 REPO="${REPO:-gaze}"
 SERVICE="${SERVICE:-gaze-maze}"
 ROOT="$(git rev-parse --show-toplevel)"

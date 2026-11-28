@@ -1,4 +1,7 @@
-from app.game import CODE_ALPHABET, CODE_LENGTH, RoomManager
+import pytest
+
+from app import game
+from app.game import CODE_ALPHABET, CODE_LENGTH, RoomLimitError, RoomManager
 from tests.conftest import shortest_path
 
 
@@ -76,3 +79,40 @@ def test_empty_rooms_are_discarded_and_codes_are_readable():
     room.remove_player(1)
     manager.discard_if_empty(room.code)
     assert manager.get(room.code) is None
+
+
+def test_nobody_can_join_once_the_race_has_started():
+    _, room = make_room()
+    room.add_player(0)
+    room.add_player(0)
+    room.remove_player(2)  # opponent leaves mid-race
+    assert room.add_player(1) is None
+
+
+def test_rooms_nobody_joined_expire_after_the_ttl():
+    manager = RoomManager(rows=6, cols=6, min_move_interval=0, seed=3, room_ttl=10)
+    abandoned = manager.create_room(now=0)
+    occupied = manager.create_room(now=0)
+    occupied.add_player(0)
+    manager.create_room(now=5)
+    assert manager.get(abandoned.code) is abandoned  # not old enough yet
+    manager.create_room(now=11)
+    assert manager.get(abandoned.code) is None  # empty and past the ttl
+    assert manager.get(occupied.code) is occupied  # has a player, so it stays
+
+
+def test_room_count_is_capped():
+    manager = RoomManager(rows=6, cols=6, min_move_interval=0, seed=3, max_rooms=2)
+    manager.create_room(now=0)
+    manager.create_room(now=0)
+    with pytest.raises(RoomLimitError):
+        manager.create_room(now=0)
+
+
+def test_code_search_gives_up_instead_of_looping_forever(monkeypatch):
+    monkeypatch.setattr(game, "CODE_ALPHABET", "A")
+    monkeypatch.setattr(game, "CODE_LENGTH", 1)
+    manager = RoomManager(rows=6, cols=6, min_move_interval=0, seed=3)
+    manager.create_room(now=0)  # takes the only code, "A"
+    with pytest.raises(RoomLimitError):
+        manager.create_room(now=0)

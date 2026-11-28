@@ -4,6 +4,7 @@ import { RaceScreen } from './RaceScreen'
 import type { RaceMazeData } from './raceClient'
 
 // The camera/model loop is tested elsewhere; here gaze is simply "not looking anywhere".
+let mockLayoutMatches = true
 vi.mock('../gaze/useGazeTracking', () => ({
   useGazeTracking: () => ({
     videoRef: { current: null },
@@ -11,6 +12,7 @@ vi.mock('../gaze/useGazeTracking', () => ({
     gazeDirection: null,
     gazePoint: null,
     statusText: 'Tracking gaze',
+    layoutMatches: mockLayoutMatches,
   }),
 }))
 
@@ -23,6 +25,7 @@ class FakeSocket {
   closed = false
   onmessage: ((event: { data: string }) => void) | null = null
   onerror: (() => void) | null = null
+  onclose: (() => void) | null = null
   url: string
   constructor(url: string) {
     this.url = url
@@ -36,6 +39,10 @@ class FakeSocket {
   }
   receive(message: unknown) {
     act(() => this.onmessage?.({ data: JSON.stringify(message) }))
+  }
+  /** The server drops the connection (restart, network loss). */
+  serverClose() {
+    act(() => this.onclose?.())
   }
 }
 
@@ -64,7 +71,10 @@ describe('RaceScreen', () => {
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({ code: 'ABCD' }) }),
     )
   })
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    mockLayoutMatches = true
+  })
 
   async function createAndJoin() {
     render(<RaceScreen onBack={() => {}} serverUrl="http://server.test" />)
@@ -81,6 +91,41 @@ describe('RaceScreen', () => {
     const socket = await createAndJoin()
     socket.receive(state({ '1': { row: 0, col: 0 } }))
     expect(screen.getByLabelText('Your race code')).toHaveTextContent('ABCD')
+
+    // Waiting for the opponent: arrow keys don't send moves yet.
+    fireEvent.keyDown(window, { key: 'ArrowDown' })
+    fireEvent.keyUp(window, { key: 'ArrowDown' })
+    expect(socket.sent).toEqual([])
+  })
+
+  it('says so when the server drops the connection mid-race', async () => {
+    const socket = await createAndJoin()
+    socket.receive(state({ '1': { row: 0, col: 0 }, '2': { row: 0, col: 1 } }))
+    socket.serverClose()
+    expect(screen.getByRole('alert')).toHaveTextContent('Lost connection to the race server.')
+    expect(screen.getByRole('button', { name: 'Create race' })).toBeInTheDocument()
+  })
+
+  it('keeps the result on screen if the connection closes after the race', async () => {
+    const socket = await createAndJoin()
+    socket.receive(state({ '1': { row: 1, col: 1 }, '2': { row: 0, col: 1 } }, 1))
+    socket.serverClose()
+    expect(screen.getByRole('status')).toHaveTextContent('You found the cheese first!')
+  })
+
+  it('explains a race that already started', () => {
+    render(<RaceScreen onBack={() => {}} serverUrl="http://server.test" />)
+    fireEvent.change(screen.getByLabelText('Race code'), { target: { value: 'abcd' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }))
+    FakeSocket.instances[0].receive({ type: 'error', reason: 'race_started' })
+    expect(screen.getByRole('alert')).toHaveTextContent('That race has already started.')
+  })
+
+  it('offers to restore full screen when the window no longer matches the calibration', async () => {
+    mockLayoutMatches = false
+    const socket = await createAndJoin()
+    socket.receive(state({ '1': { row: 0, col: 0 }, '2': { row: 0, col: 1 } }))
+    expect(screen.getByRole('button', { name: 'Restore full screen' })).toBeInTheDocument()
   })
 
   it('shows the opponent as a ghost and sends arrow-key moves', async () => {

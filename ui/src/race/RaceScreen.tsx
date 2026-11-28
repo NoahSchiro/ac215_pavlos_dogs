@@ -4,6 +4,7 @@ import { GazeCrosshair } from '../gaze/GazeCrosshair'
 import { useGazeTracking } from '../gaze/useGazeTracking'
 import type { Direction } from '../maze/gazeDirection'
 import type { CalibrationSession } from '../calibration/record'
+import { enterFullscreen } from '../calibration/fullscreen'
 import { RaceMaze } from './RaceMaze'
 import {
   createRoom,
@@ -27,7 +28,22 @@ const KEY_DIRECTIONS: Record<string, Direction> = {
 const ERROR_TEXT: Record<string, string> = {
   room_not_found: 'No race with that code. Check the code and try again.',
   room_full: 'That race already has two players.',
+  race_started: 'That race has already started.',
 }
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+
+/** True when a deployed page would try to reach a race server on localhost. */
+function raceServerNotConfigured(serverUrl: string): boolean {
+  try {
+    return LOCAL_HOSTS.has(new URL(serverUrl).hostname) && !LOCAL_HOSTS.has(window.location.hostname)
+  } catch {
+    return true
+  }
+}
+
+/** Phases where the camera and gaze model run, so they are ready when the race starts. */
+const TRACKING_PHASES: readonly Phase[] = ['lobby', 'connecting', 'waiting', 'racing']
 
 interface Props {
   onBack: () => void
@@ -62,8 +78,13 @@ export function RaceScreen({ onBack, serverUrl: serverUrlProp, calibration }: Pr
   const [winner, setWinner] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Close the connection when leaving the screen.
-  useEffect(() => () => socketRef.current?.close(), [])
+  // Close the connection when leaving the screen. Clearing the ref first tells
+  // onclose this was on purpose.
+  useEffect(() => () => {
+    const socket = socketRef.current
+    socketRef.current = null
+    socket?.close()
+  }, [])
 
   const handleMessage = useCallback((message: ServerMessage) => {
     switch (message.type) {
@@ -93,7 +114,9 @@ export function RaceScreen({ onBack, serverUrl: serverUrlProp, calibration }: Pr
 
   const connect = useCallback(
     (roomCode: string) => {
-      socketRef.current?.close()
+      const previous = socketRef.current
+      socketRef.current = null
+      previous?.close()
       setError(null)
       setCode(roomCode.toUpperCase())
       setPhase('connecting')
@@ -103,19 +126,40 @@ export function RaceScreen({ onBack, serverUrl: serverUrlProp, calibration }: Pr
         setError('Could not reach the race server.')
         setPhase('lobby')
       }
+      // The server closed the connection (restart, network drop). Ignore sockets
+      // we replaced or closed ourselves.
+      socket.onclose = () => {
+        if (socketRef.current !== socket) return
+        socketRef.current = null
+        setPhase((current) => (current === 'finished' ? current : 'lobby'))
+        setError((current) => current ?? 'Lost connection to the race server.')
+      }
       socketRef.current = socket
     },
     [serverUrl, handleMessage],
   )
 
+  /** Checks before creating or joining; false (with an error shown) if racing can't work here. */
+  const readyToRace = useCallback(() => {
+    if (raceServerNotConfigured(serverUrl)) {
+      setError('Race mode is not set up on this site yet: no race server is configured.')
+      return false
+    }
+    // Race in full screen, like Start game in the solo maze, so the window
+    // matches the calibration. Must run inside the click to be allowed.
+    void enterFullscreen()
+    return true
+  }, [serverUrl])
+
   const startNewRace = useCallback(async () => {
+    if (!readyToRace()) return
     try {
       connect(await createRoom(serverUrl))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create a race.')
       setPhase('lobby')
     }
-  }, [connect, serverUrl])
+  }, [connect, serverUrl, readyToRace])
 
   const sendMove = useCallback((direction: Direction) => {
     const socket = socketRef.current
@@ -139,7 +183,7 @@ export function RaceScreen({ onBack, serverUrl: serverUrlProp, calibration }: Pr
             className="race-join"
             onSubmit={(event) => {
               event.preventDefault()
-              if (joinCode.trim()) connect(joinCode)
+              if (joinCode.trim() && readyToRace()) connect(joinCode)
             }}
           >
             <input
@@ -200,7 +244,9 @@ export function RaceScreen({ onBack, serverUrl: serverUrlProp, calibration }: Pr
         </>
       )}
 
-      {phase === 'racing' && <RaceControls onMove={sendMove} calibration={calibration} />}
+      {TRACKING_PHASES.includes(phase) && (
+        <RaceControls active={phase === 'racing'} onMove={sendMove} calibration={calibration} />
+      )}
 
       <button type="button" className="back-button" onClick={onBack}>
         Back to Home
@@ -209,23 +255,30 @@ export function RaceScreen({ onBack, serverUrl: serverUrlProp, calibration }: Pr
   )
 }
 
-/** Steering for the race: gaze (run in this browser) plus the arrow keys. */
-function RaceControls({ onMove, calibration }: {
+/**
+ * Steering for the race: gaze (run in this browser) plus the arrow keys.
+ * Mounted from the lobby on, so the camera and model load before the race;
+ * it only sends moves once the race is on (active).
+ */
+function RaceControls({ active, onMove, calibration }: {
+  active: boolean
   onMove: (direction: Direction) => void
   calibration?: CalibrationSession | null
 }) {
-  const { videoRef, canvasRef, gazeDirection, gazePoint, statusText } = useGazeTracking(calibration)
+  const { videoRef, canvasRef, gazeDirection, gazePoint, statusText, layoutMatches } =
+    useGazeTracking(calibration)
 
   // Gaze: keep moving while the player looks toward an edge of the screen.
   useEffect(() => {
-    if (!gazeDirection) return
+    if (!active || !gazeDirection) return
     onMove(gazeDirection)
     const timer = setInterval(() => onMove(gazeDirection), GAZE_MOVE_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [gazeDirection, onMove])
+  }, [active, gazeDirection, onMove])
 
   // Arrow keys: move once on press, then repeat while held.
   useEffect(() => {
+    if (!active) return
     let timer: ReturnType<typeof setInterval> | undefined
     let activeKey: string | null = null
     const stop = () => {
@@ -254,16 +307,23 @@ function RaceControls({ onMove, calibration }: {
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', stop)
     }
-  }, [onMove])
+  }, [active, onMove])
 
   return (
     <>
       <video ref={videoRef} autoPlay playsInline muted style={{ display: 'none' }} />
       <canvas ref={canvasRef} style={{ display: 'none' }} />
-      <GazeCrosshair gaze={gazePoint} />
-      <p role="status" aria-live="polite">
-        {statusText} (arrow keys work too)
-      </p>
+      {active && <GazeCrosshair gaze={gazePoint} />}
+      {active && (
+        <p role="status" aria-live="polite">
+          {statusText} (arrow keys work too)
+        </p>
+      )}
+      {active && !layoutMatches && (
+        <button type="button" className="back-button" onClick={() => void enterFullscreen()}>
+          Restore full screen
+        </button>
+      )}
     </>
   )
 }

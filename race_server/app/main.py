@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings
-from app.game import RoomManager
+from app.game import RoomLimitError, RoomManager
 
 logger = logging.getLogger("race")
 if not logger.handlers:
@@ -41,6 +41,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         cols=settings.maze_cols,
         min_move_interval=settings.min_move_interval_ms / 1000,
         seed=settings.seed,
+        room_ttl=settings.room_ttl_s,
+        max_rooms=settings.max_rooms,
     )
     # connections[room code][player id] = that player's WebSocket
     connections: dict[str, dict[int, WebSocket]] = {}
@@ -59,7 +61,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/rooms", status_code=201)
     def create_room() -> dict:
-        room = manager.create_room()
+        try:
+            room = manager.create_room(time.monotonic())
+        except RoomLimitError as err:
+            log_event("room_refused", reason=str(err), rooms=len(manager.rooms))
+            raise HTTPException(status_code=503, detail="server busy, try again later") from err
         log_event("room_created", room=room.code)
         return {"code": room.code}
 
@@ -77,6 +83,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.websocket("/rooms/{code}/ws")
     async def play(websocket: WebSocket, code: str) -> None:
+        # browsers don't apply CORS to websockets, so check the page's origin here
+        origin = websocket.headers.get("origin")
+        if "*" not in settings.allowed_origins and origin not in settings.allowed_origins:
+            log_event("origin_refused", origin=origin)
+            await websocket.close(code=1008)  # rejects the handshake (HTTP 403)
+            return
         await websocket.accept()
         room = manager.get(code)
         if room is None:
@@ -85,7 +97,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return
         player = room.add_player(time.monotonic())
         if player is None:
-            await websocket.send_json({"type": "error", "reason": "room_full"})
+            reason = "room_full" if room.is_full else "race_started"
+            await websocket.send_json({"type": "error", "reason": reason})
             await websocket.close(code=4409)
             return
 

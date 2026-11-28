@@ -105,3 +105,45 @@ def test_opponent_is_told_when_the_other_player_leaves(client):
             p1.receive_json()  # state: race started
         assert p1.receive_json() == {"type": "opponent_left"}
     assert client.get(f"/rooms/{code}").status_code == 404  # room cleaned up
+
+
+def test_creating_a_room_returns_503_when_the_server_is_full():
+    app = create_app(
+        Settings(maze_rows=4, maze_cols=4, min_move_interval_ms=0, seed=7, max_rooms=1)
+    )
+    with TestClient(app) as c:
+        assert c.post("/rooms").status_code == 201
+        assert c.post("/rooms").status_code == 503
+
+
+def test_websockets_from_other_websites_are_refused():
+    settings = Settings(
+        maze_rows=4,
+        maze_cols=4,
+        min_move_interval_ms=0,
+        seed=7,
+        allowed_origins=("https://gaze-maze.example",),
+    )
+    with TestClient(create_app(settings)) as c:
+        code = create_room(c)
+        with pytest.raises(WebSocketDisconnect):
+            with c.websocket_connect(
+                f"/rooms/{code}/ws", headers={"origin": "https://evil.example"}
+            ):
+                pass
+        with c.websocket_connect(
+            f"/rooms/{code}/ws", headers={"origin": "https://gaze-maze.example"}
+        ) as ws:
+            assert ws.receive_json()["type"] == "welcome"
+
+
+def test_a_started_race_cannot_be_joined_after_a_player_leaves(client):
+    code = create_room(client)
+    with client.websocket_connect(f"/rooms/{code}/ws") as p1:
+        p1.receive_json(), p1.receive_json()
+        with client.websocket_connect(f"/rooms/{code}/ws") as p2:
+            p2.receive_json(), p2.receive_json()
+            p1.receive_json()  # state: race started
+        assert p1.receive_json() == {"type": "opponent_left"}
+        with client.websocket_connect(f"/rooms/{code}/ws") as late:
+            assert late.receive_json() == {"type": "error", "reason": "race_started"}

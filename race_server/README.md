@@ -15,7 +15,8 @@ the cheese wins.
 | Job | Where |
 | --- | --- |
 | Generate a random perfect maze (one path between any two cells) | `app/maze.py` |
-| Rooms with a 4-letter join code, max 2 players, race starts when player 2 joins | `app/game.py` |
+| Rooms with a 4-letter join code, max 2 players, race starts when player 2 joins (no joining once it has started) | `app/game.py` |
+| Clean up rooms nobody joined (10-minute TTL) and cap the number of rooms | `RoomManager` in `app/game.py` |
 | **Validate every move** (walls, edges, rate limit, race not started / already over) | `Room.move` in `app/game.py` |
 | Decide the winner (first player on the cheese) | `Room.move` |
 | Send both players the same state over a WebSocket | `app/main.py` |
@@ -31,7 +32,7 @@ walk through walls or teleport to the cheese.
 | Method | Path | Response |
 | --- | --- | --- |
 | `GET` | `/health` | `{"status": "ok", "rooms": 0}` |
-| `POST` | `/rooms` | `201 {"code": "ABCD"}`: creates a room |
+| `POST` | `/rooms` | `201 {"code": "ABCD"}`: creates a room, or `503` when the server is full |
 | `GET` | `/rooms/{code}` | `{"code", "players", "started", "winner"}`, or `404` |
 
 FastAPI also serves interactive docs at `/docs`.
@@ -90,7 +91,9 @@ overridden with an environment variable of the same name:
 | --- | --- | --- |
 | `MAZE_ROWS`, `MAZE_COLS` | `15` | Maze size |
 | `MIN_MOVE_INTERVAL_MS` | `100` | Fastest a player may move (anti-cheat rate limit) |
-| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated websites allowed to use the server (CORS + WebSocket origin check) |
+| `ROOM_TTL_S` | `600` | Seconds before a room nobody is in is deleted |
+| `MAX_ROOMS` | `1000` | Most rooms at once; past this, `POST /rooms` returns `503` |
 | `PORT` | `8080` | Port inside the container (Cloud Run sets this) |
 
 ## Tests
@@ -128,7 +131,8 @@ RACE_SERVER_URL=https://race-server-xxxx.us-east1.run.app \
 PROJECT=... MODEL_URL=... deploy/deploy-ui.sh
 ```
 
-Finally, lock the race server to the website (CORS):
+Finally, lock the race server to the website. Browsers don't apply CORS to WebSockets,
+so the server also checks each WebSocket's `Origin` header against this list:
 
 ```bash
 gcloud run services update race-server --region us-east1 \
