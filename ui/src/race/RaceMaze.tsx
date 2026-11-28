@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { PLAYER_SIZE_PERCENT } from '../config'
+import { useState, type CSSProperties } from 'react'
+import { PLAYER_SIZE_PERCENT, RACE_MAZE_DISPLAY_SIZE } from '../config'
 import type { Cell, RaceMazeData } from './raceClient'
 import '../maze/Maze.css'
 import './race.css'
@@ -78,9 +78,11 @@ export function RaceMaze({ maze, me, ghost, showCheese, meWon = false, ghostWon 
       role="group"
       aria-label="Race maze"
       style={{
+        // Fit the screen like the solo maze (Maze.css sizes .maze by --maze-size).
+        '--maze-size': RACE_MAZE_DISPLAY_SIZE,
         gridTemplateColumns: `repeat(${maze.cols}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${maze.rows}, minmax(0, 1fr))`,
-      }}
+      } as CSSProperties}
     >
       {maze.walls.map((row, r) =>
         row.map((walls, c) => (

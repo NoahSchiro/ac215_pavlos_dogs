@@ -74,6 +74,12 @@ export const MAZE_COLS = 15
 /** Maximum on-screen maze size, accounting for viewport height. */
 export const MAZE_DISPLAY_SIZE = 'min(94vw, calc(100dvh - 100px))'
 
+/**
+ * Maximum on-screen race maze size. The race screen stacks a title, legend,
+ * status line and Back button around the maze, so it leaves more height free.
+ */
+export const RACE_MAZE_DISPLAY_SIZE = 'min(94vw, calc(100dvh - 260px))'
+
 /** Pavlos's size, as a percentage of one maze cell. */
 export const PLAYER_SIZE_PERCENT = 75
 
